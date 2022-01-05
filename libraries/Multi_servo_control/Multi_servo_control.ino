@@ -18,11 +18,12 @@ USE SERIAL PLOTTER TO REVIEW ONE VARIABLE AT A TIME
 //   the arm accelerations, for safety.
 // The integer is the size of the running average list
 //  25 is too slow.  15 is still a bit slow
-#define RA_SIZE 10 // size of the running average list
+#define RA_SIZE 5 // size of the running average list
 RunningAverage potA_RA(RA_SIZE);
 RunningAverage potB_RA(RA_SIZE);
 RunningAverage potC_RA(RA_SIZE);
 RunningAverage potD_RA(RA_SIZE);
+RunningAverage potT_RA(RA_SIZE);
 
 // Symbolic Constants:
 #define JNTA_POT_PIN 5  // Joint A Potentiometer on analog pin A5
@@ -35,30 +36,41 @@ RunningAverage potD_RA(RA_SIZE);
 // Use these constants to tune the potetiometer RANGE
 // number that ranges from 0 (0 Volts) to 1023 (5 Volts)
 #define JNTA_POT_MIN 60 
-#define JNTB_POT_MIN 160 
-#define JNTC_POT_MIN 740 // reverse
-#define JNTD_POT_MIN 720 // reverse
-
 #define JNTA_POT_MAX 650 
+
+#define JNTB_POT_MIN 160 
 #define JNTB_POT_MAX 950 
-#define JNTC_POT_MAX 280  // reverse
-#define JNTD_POT_MAX 430  // reverse
+
+#define JNTC_POT_MIN 750 // reverse 720
+#define JNTC_POT_MAX 400  // reverse  280
+
+#define JNTD_POT_MIN 720 // reverse 
+#define JNTD_POT_MAX 400  // reverse
+
+#define JNTT_POT_MIN 200 
+#define JNTT_POT_MAX 600
 
 // Use these constants to control the range of the servo outputs
 // Values are DEGREES (typically 0 to 180)  
 //    ** Start small and increase with tuning **
 //    ** to avoid current overloads           **
-#define JNTA_SVO_MIN 130   // up/back
-#define JNTB_SVO_MIN 0
-#define B_SVO_MIN 180  //
-#define JNTC_SVO_MIN 20  
-#define JNTD_SVO_MIN 160  
+#define JNTA_SVO_MIN 30   // up/back
+#define JNTA_SVO_MAX 130  // down/out
 
-#define JNTA_SVO_MAX 30  // down/out
+#define JNTB_SVO_MIN 0
 #define JNTB_SVO_MAX 160
-#define B_SVO_MAX 00   //
-#define JNTC_SVO_MAX 140  
-#define JNTD_SVO_MAX 20 
+
+#define B_SVO_MIN 0
+#define B_SVO_MAX 180
+
+#define JNTC_SVO_MIN 30
+#define JNTC_SVO_MAX 130
+
+#define JNTD_SVO_MIN 160
+#define JNTD_SVO_MAX 20
+
+#define JNTT_SVO_MIN 160
+#define JNTT_SVO_MAX 20
 
 #define SVO_MIN 0 // used with constrain to keep servo value acceptable
 #define SVO_MAX 180 // used with constrain to keep servo value acceptable
@@ -68,10 +80,11 @@ RunningAverage potD_RA(RA_SIZE);
 // Create the servo objects, one for each servo.
 // You can control a maximum of twelve servos on the Uno 
 
-Servo servoA;  // servo control object
-Servo servoB;  // servo control object
-Servo servoC;  // servo control object
-Servo servoD;  // servo control object
+Servo servoA;  // servo for the shoulder
+Servo servoB;  // servo for the elbow
+Servo servoC;  // servo for the wrist
+Servo servoD;  // servo for the Claw
+Servo servoT;  // servo for the Turntable
 
 void setup() // this function runs once when the sketch starts up
 {
@@ -92,12 +105,13 @@ void setup() // this function runs once when the sketch starts up
   // to the servo. Servos require a continuous stream of control
   // signals, even if you're not currently moving them.
 
-  servoA.attach(9); // A
-  servoB.attach(5); // B
-  servoC.attach(6); // C
-  servoD.attach(10); // D
+  servoA.attach(9); // A shoulder
+  servoB.attach(5); // B elbow
+  servoC.attach(6); // C wrist
+  servoD.attach(10); // Claw (D)
+  servoT.attach(11); // Turntable
 
-  Serial.begin(19200);
+  Serial.begin(250000);
   while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
   } 
@@ -110,9 +124,10 @@ void loop() // this function runs repeatedly after setup() finishes
 {
   // declare integer variable to store the value of potentiometers:
 
-  int potA,potB,potC,potD;
-  int smooth_potA,smooth_potB,smooth_potC,smooth_potD;
-  int jntA, jntB, jntC, jntD;
+  int potA,potB,potC,potD,potT;
+  int smooth_potA,smooth_potB,smooth_potC,smooth_potD,smooth_potT;
+  int jntA, jntB, jntC, jntD,jntT;
+  
   int jntB_Mod, jntB_Mod_temp;
   int B_map_min,B_map_max;
   
@@ -129,24 +144,29 @@ void loop() // this function runs repeatedly after setup() finishes
   potB = analogRead(JNTB_POT_PIN);    // B pot
   potC = analogRead(JNTC_POT_PIN);    // C pot
   potD = analogRead(JNTD_POT_PIN);    // D pot
+  potT = analogRead(JNTT_POT_PIN);    // T pot
 
   // add the value to the Running Average list
   potA_RA.addValue(potA);
   potB_RA.addValue(potB);
   potC_RA.addValue(potC);
   potD_RA.addValue(potD);
+  potT_RA.addValue(potT);
 
   // get smoothed value
   smooth_potA = potA_RA.getAverage();
   smooth_potB = potB_RA.getAverage();
   smooth_potC = potC_RA.getAverage();
   smooth_potD = potD_RA.getAverage();
+  smooth_potT = potT_RA.getAverage();
 
   // Both map the pot value to degrees and constrain the angle, to prevent current overloads.
+  // map(value, fromLow, fromHigh, toLow, toHigh)
   jntA = constrain(map(smooth_potA,JNTA_POT_MIN,JNTA_POT_MAX,JNTA_SVO_MIN,JNTA_SVO_MAX),SVO_MIN,SVO_MAX);    
   jntB = constrain(map(smooth_potB,JNTB_POT_MIN,JNTB_POT_MAX,JNTB_SVO_MIN,JNTB_SVO_MAX),SVO_MIN,SVO_MAX);
-  jntC = constrain(map(smooth_potC,JNTC_POT_MIN,JNTC_POT_MAX,JNTC_SVO_MIN,JNTC_SVO_MAX),SVO_MIN,SVO_MAX);    
+  jntC = constrain(map(smooth_potC,JNTC_POT_MIN,JNTC_POT_MAX,JNTC_SVO_MIN,JNTC_SVO_MAX),JNTC_SVO_MIN,SVO_MAX);    
   jntD = constrain(map(smooth_potD,JNTD_POT_MIN,JNTD_POT_MAX,JNTD_SVO_MIN,JNTD_SVO_MAX),SVO_MIN,SVO_MAX);    
+  jntT = constrain(map(smooth_potT,JNTT_POT_MIN,JNTT_POT_MAX,JNTT_SVO_MIN,JNTT_SVO_MAX),SVO_MIN,SVO_MAX);    
 
   // Servo B is on joint A, so need to combine A and B
   jntB_Mod_temp = jntA+(160-jntB);
@@ -157,40 +177,48 @@ void loop() // this function runs repeatedly after setup() finishes
   //jntB_Mod = constrain(map(jntB_Mod_temp,B_map_min,B_map_max,B_SVO_MIN,B_SVO_MAX),B_SVO_MAX,B_SVO_MIN);  
 
 // use one of these lines with serial plotter to tune the constants
-  //Serial.println(smooth_potD);  // change to potB, potC, etc. to see others
-  //Serial.println(jntD); // change to jntA, jntB, jntC, etc to see others
+  //Serial.println(potC);  // change to potB, potC, etc. to see others
+  //Serial.println(jntC); // change to jntA, jntB, jntC, etc to see others
   //Serial.println(jntB_Mod);
 
   // Change servo positions using write command (degrees):
   // NOTE: DRIVING PAST ENDPOINTS IS A HIGH CURRENT STATE.
   //
     servoA.write(jntA);
-    servoB.write(jntB_Mod);
+    servoB.write(jntB);
     servoC.write(jntC);
     servoD.write(jntD);
+    servoT.write(jntT);
     //
 
 //
   // output for debugging
-  Serial.print("potA , ");
-  Serial.print(potA,1);  // Serial.print(val,digits)
-  Serial.print(":  jntA, ");
+  // Serial.print(val,digits)
+  Serial.print("millis,");
+  Serial.print(millis());
+  Serial.print(",potA,");
+  Serial.print(potA,1);  
+  Serial.print(",smooth_potA,");
+  Serial.print(smooth_potA);  
+  Serial.print(",jntA,");
   Serial.print(jntA,1);
-  Serial.print(":  potB, ");
+  Serial.print(",potB,");
   Serial.print(potB,1);
-  Serial.print(":  jntB, ");
+  Serial.print(",smooth_potB,");
+  Serial.print(smooth_potB);
+  Serial.print(",jntB,");
   Serial.print(jntB,1);
-  Serial.print(":  jntB_Mod_temp , ");
+  Serial.print(",jntB_Mod_temp,");
   Serial.print(jntB_Mod_temp,1);
-  Serial.print(":  jntB_Mod, ");
+  Serial.print(",jntB_Mod,");
   Serial.print(jntB_Mod,1);
-  Serial.print(": potC , ");
+  Serial.print(",potC,");
   Serial.print(potC,1);
-  Serial.print(": jntC , ");
+  Serial.print(",jntC,");
   Serial.print(jntC,1);
-  Serial.print(": potD, ");
+  Serial.print(",potD,");
   Serial.print(potD,1);
-  Serial.print(": jntD , ");
+  Serial.print(",jntD,");
   Serial.println(jntD,1);
 //
 }
