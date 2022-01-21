@@ -111,7 +111,7 @@ void setup() // this function runs once when the sketch starts up
   servoD.attach(10); // Claw (D)
   servoT.attach(11); // Turntable
 
-  Serial.begin(250000);
+  Serial.begin(9600); // 250000
   while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
   } 
