@@ -1,9 +1,9 @@
 /*
 Control a robot arm (using Servos) from an Input arm (using Potentiometers)
 
-by SrAmo, July 3, 2021
+by SrAmo, February, 2022
 
-USE SERIAL PLOTTER TO REVIEW ONE VARIABLE AT A TIME
+USE SERIAL MONITOR TO REVIEW ONE VARIABLE AT A TIME
 
 */
 
