@@ -4,144 +4,117 @@
 #include <Servo.h>  // servo library
 // Servo Function library at: http://arduino.cc/en/Reference/Servo
 
-#define SERIALOUT false  // COMMENT-OUT TO TURN OFF SERIAL output. 
+#define SERIALOUT false  // Controlls SERIAL output. Turn off when not debugging. 
 
-#define TUNE false  // TRUE WHEN TUNING ONE POT/SERVO,  FALSE WHEN DOING ALL SERVOS
+// RATE LIMITING MAKE THE INITIALIZATION JUMPY!!!  ALSO, DOES NOT SEEM TO HELP
+#define SVO_RATE_LIMIT 5 // Max servo microsecond change in a loop (to smooth operation)
+//  rate limit = 50 for serial on, rate limit = 10 for serial off
 
-#define lenAB 50.0     // Length of Input AB arm in mm
-#define lenBC 60.0     // Length of Input BC arm in mm
-#define RADIAN 57.2957795  // number of degrees in one radian
-#define SCLR 1  // scaler used to improve accuracy of int variables
+#define SCLR 10  // scaler used to improve accuracy of int variables
+
+// TRUE WHEN TUNING ONE POT/SERVO,  FALSE WHEN DOING ALL SERVOS
+#define A_ON true
+#define B_ON true
+#define C_ON true
+#define D_ON true
+#define T_ON true
+
+//#define lenAB 50.0     // Length of Input AB arm in mm
+//#define lenBC 60.0     // Length of Input BC arm in mm
+//#define RADIAN 57.2957795  // number of degrees in one radian
 
 // CONSTANTS:
 // Use PIN_ constants to identify the analog pin (0-5) for the Potentiometer.
 // Use POT_ constants to set potetiometer ranges from 0 (0 Volts) to 1023 (5 Volts)
-// Use INPUTARM_ constants to map the Input Angle (deg)for a given potentiometer value
+// Use IA_ constants to map the Input Angle (deg)for a given potentiometer value
 // Compute Output Arm Angles from INPUTS and map() to compute value for servos.
 // Use SVODIG_ to identify the digital pin that the servo is attached to.
-// Use SVO_ constants to set servo range in microseconds - 
+// Use SVO_ constants to set servo range in microseconds 
 // Values are microseconds (~700 to ~2300--SERVOS MUST BE TESTED), REGARDLESS OF SERVO RANGE
 // 270 deg servo, gets 260 deg motion with 500 to 2800 microsecond range
 // 180 deg servo, gets 160 deg motion with 500 to 2800 microsecond range
 // 180 deg SAVOX, gets 170 deg motion with 500 to 2800 microsecond range
-//    ** Start small and increase with tuning **
-//    ** to avoid current overloads           **
-
-// SINGLE TEST VALUES (NO JOINT SUFFIX)
-#define PIN 5    // TEST PIN IS ZERO
-#define POT_MIN 0   // 0 TO 1023
-#define POT_MAX 1000   // 0 TO 1023
-const int INPUTARM_MIN = -100*SCLR;  // DEG at POT_MIN
-#define INPUTARM_MAX 40  // DEG at POT_MAX
-// CONSTRAIN INPUT??
-#define SVODIG 6
-#define OUTPUTARM_MIN -100  // DEG
-#define OUTPUTARM_MAX 40  // DEG
-#define SVO_MIN 2200   // microseconds @ OUTPUTARM_MIN angle
-#define SVO_MAX 500  // microseconds @ OUTPUTARM_MAX angle
-
-// JOINT C, COMPUTED INPUT.
-//  TUNER POT IN THE FUTURE, Analog 5 input pin, Digital 6 output pin
-#define PIN_C 5    // The C potentiometer is for tuning the Claw position.
-#define POT_MIN_C 0   // 0 TO 1023
-#define POT_MAX_C 1000   // 0 TO 1023
-#define INPUTARM_MIN_C -100  // DEG CW (-110) Smaller than actual angle
-#define INPUTARM_MAX_C 40  // DEG CCW (40) Smaller than actual angle
-#define TUNEARM_MIN_C -30  // min for how much tuning can be added
-#define TUNEARM_MAX_C 30  // max for how much tuning can be added
-#define SVODIG_C 6   // Currently 180 deg servo. Could TO UPGRADE TO 270 DEG SERVO
-#define OUTPUTARM_MIN_C -100
-#define OUTPUTARM_MAX_C 40
-#define SVO_MIN_C 2200   // microseconds
-#define SVO_MAX_C 500  // microseconds
-
+//   **        avoid current overloads           **
 
 // JOINT A, Analog 4 input pin, Digital 9 output
 #define PIN_A 4
 #define POT_MIN_A 134
 #define POT_MAX_A 870
-#define INPUTARM_MIN_A  0
-#define INPUTARM_MAX_A  175
+const int IA_MIN_A = 2*SCLR;
+const int IA_MAX_A = 175*SCLR;
 #define SVODIG_A 9
-#define OUTPUTARM_MIN_A 0  // DEG
-#define OUTPUTARM_MAX_A 160  // DEG SHOULD BE same as input limits
+const int OA_MIN_A = 0*SCLR;  // DEG
+const int OA_MAX_A = 170*SCLR;  // DEG SHOULD BE same as input limits?
 #define SVO_MIN_A 960   // microseconds
 #define SVO_MAX_A 2200  // microseconds
 
 // JOINT B, Analog 1 input pin, Digital 5 output pin
 #define PIN_B 1
-#define POT_MIN_B  0
-#define POT_MAX_B  957
-#define INPUTARM_MIN_B  -125
-#define INPUTARM_MAX_B  120
+#define POT_MIN_B  1
+#define POT_MAX_B 500
+const int IA_MIN_B = -130*SCLR;
+const int IA_MAX_B = 1*SCLR;
 #define SVODIG_B 5
-#define OUTPUTARM_MIN_B -45  // DEG + 90
-#define OUTPUTARM_MAX_B 90  // DEG + 90
-#define SVO_MIN_B 2110   // microseconds
-#define SVO_MAX_B 1130  // microseconds
+const int OA_MIN_B = -50*SCLR;  // IA_MIN + 90??
+const int OA_MAX_B = 90*SCLR;  // IA_MAX - 90??
+#define SVO_MIN_B 2300   // microseconds
+#define SVO_MAX_B 1000  // microseconds
 
-// ROBOT ARM DATA
-// TURNTABLE, Analog 0 input pin, Digital 11 output pin
-#define PIN_T 0
-#define POT_MIN_T 130
-#define POT_MAX_T 930
-#define INPUTARM_MIN_T 100  // DEG
-#define INPUTARM_MAX_T -90  // DEG
-#define SVODIG_T 11
-// straight out is at 0 DEG, XXX microseconds
-#define OUTPUTARM_MIN_T -25  // DEG, was -45
-#define OUTPUTARM_MAX_T 50  // DEG, was 70
-#define SVO_MIN_T 500   // microseconds
-#define SVO_MAX_T 2300  // microseconds
+// JOINT C, COMPUTED INPUT.
+//  TUNER POT, Analog 5 input pin, Digital 6 output pin
+#define PIN_C 5    // The C potentiometer is for tuning the Claw position.
+#define POT_MIN_C 0   // 0 TO 1023
+#define POT_MAX_C 1000   // 0 TO 1023
+const int IA_MIN_C = -100*SCLR;  // DEG CW (-110) Smaller than actual angle
+const int IA_MAX_C = 40*SCLR;  // DEG CCW (40) Smaller than actual angle
+#define SVODIG_C 6   // Currently 180 deg servo. Could TO UPGRADE TO 270 DEG SERVO
+const int OA_MIN_C = -100*SCLR;
+const int OA_MAX_C = 40*SCLR;
+#define SVO_MIN_C 2200   // microseconds
+#define SVO_MAX_C 500  // microseconds
 
 // JOINT D (CLAW), Analog 2 input pin, Digital 10 output pin
 #define PIN_D 2
 #define POT_MIN_D  370
 #define POT_MAX_D  700
-#define INPUTARM_MIN_D 0  // DEG
-#define INPUTARM_MAX_D 160  // DEG
+const int IA_MIN_D = 0*SCLR;  // DEG
+const int IA_MAX_D = 160*SCLR;  // DEG
 #define SVODIG_D 10
-#define OUTPUTARM_MIN_D 0  // DEG
-#define OUTPUTARM_MAX_D 160  // DEG
+const int OA_MIN_D = 0*SCLR;  // DEG
+const int OA_MAX_D = 160*SCLR;  // DEG
 #define SVO_MIN_D 500   // microseconds
 #define SVO_MAX_D 2300  // microseconds
 
-#ifdef SERIALOUT
-  #define SVO_RATE_LIMIT 50.0  // UNITS OF servo microseconds per loop. 50 is good for turntable with serial on.
-#else
-  #define SVO_RATE_LIMIT 0.2  // UNITS OF servo microseconds per loop.  0.2 is good for turntable with serial off.
-#endif  
-
+// TURNTABLE, Analog 0 input pin, Digital 11 output pin
+#define PIN_T 0
+#define POT_MIN_T 130
+#define POT_MAX_T 930
+const int IA_MIN_T = -90*SCLR;  // DEG
+const int IA_MAX_T = 100*SCLR;  // DEG
+#define SVODIG_T 11
+// straight out is at 0 DEG, XXX microseconds
+const int OA_MIN_T = -25*SCLR;  // DEG, was -45
+const int OA_MAX_T = 50*SCLR;  // DEG, was 70
+#define SVO_MIN_T 500   // microseconds
+#define SVO_MAX_T 2300  // microseconds
 
 // ##### GLOBAL VARIABLES #####
 Servo servo_tune;  // servo for tuning
 Servo servoA,servoB,servoC,servoD,servoT;  // servos for robot arm
 
 struct joint {
-  int pot_value;
+  int pot_value;  // analog pin value, int (0 to 1023)
+  int pot_min;  // used for tuning the pot
+  int pot_max;  // used for tuning the pot
   int pot_angle;  // input device angle
-  int pot_angle_min;
-  int pot_angle_max;
   int arm_angle;  // robot arm angle
   int servo_ms;   // servo command in microseconds
   int servo_ms_prior; // used to look at servo rate of change
 };
 struct joint jA,jB,jC,jD,jT;
 
-int pot; // pot value for tuning
-int min_pot,max_pot;  // stores min and max potentiometer reading
-float inputJoint;
-float outputJoint;
-int outputServo;
-int potA,potB,potC,potD,potT; // pot values for input arm
-int priorT,deltaT;  // stores the computed value for the servo
-float inputA,inputB,inputD,inputT;
-float outputA,outputB,outputAB,outputC,outputD,outputT;
-float tuneCangle;
-int output_servoA,output_servoB,output_servoC,output_servoD,output_servoT;
 unsigned long millisTime;
-float cx,cy;
-float new_ang_a,new_ang_b;
+//float cx,cy;
 
 /*
 float otheracos(float x)
@@ -158,16 +131,10 @@ float otheracos(float x)
   ret *= sqrt(1.0 - x);
   ret = ret - 2.0 * negate * ret;
   return negate * 3.14159265358979 + ret;
-} */
+} 
 //function inverse_arm_kinematics (c=[0,10,0],lenAB=100,lenBC=120) = 
-    //  ASSUMES THAT c is on the YZ plane (x is ignored)
-    //  ASSUMES that A is at [0,0,0]
-    // returns an array with [A_angle,B_angle] where B_angle is ABC (not BC to horizontal)
-//    let (vt = norm(c))  // vector length from A to C
-//    let (sub_angle1 = atan2(c[2],c[1]))  // atan2 (Y,X)!
-//    let (sub_angle2 = acos((vt*vt+lenAB*lenAB-(lenBC*lenBC))/(2*vt*lenAB)) )
-    //echo(vt=vt,sub_angle1=sub_angle1,sub_angle2=sub_angle2)
-//    [sub_angle1 + sub_angle2,acos((lenBC*lenBC+lenAB*lenAB-vt*vt)/(2*lenBC*lenAB))] ;
+//  ASSUMES THAT c is on the YZ plane (x is ignored)
+//  ASSUMES that A is at [0,0,0]
 void inverse_arm_kinematics(float cx,float cy) {
   // calculate the angles given pt C ***Inverse Kinematics***
   // Assumes that joint A of the robot arm is at 0,0  
@@ -178,16 +145,38 @@ void inverse_arm_kinematics(float cx,float cy) {
   new_ang_a = sub_angle1 + sub_angle2;
   new_ang_b = acos((pow(lenBC,2)+pow(lenAB,2)-pow(c_len,2))/(2*lenBC*lenAB));
   return;  // no return value
+} */
+
+int int_map(int x, int in_min, int in_max, int out_min, int out_max)
+{
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
+joint setup_joint() {
+  struct joint jt;
+  jt.pot_angle = 500;
+  jt.pot_min = 10000;
+  jt.pot_max = 0;
+  jt.arm_angle = 0;
+  jt.servo_ms = 1000;
+  jt.servo_ms_prior = 1000;
+  return jt;
 }
 
 void setup() {
-  #if TUNE
-    servo_tune.attach(SVODIG); 
-  #else
+  #if A_ON
     servoA.attach(SVODIG_A);
+  #endif
+  #if B_ON
     servoB.attach(SVODIG_B);
+  #endif
+  #if C_ON
     servoC.attach(SVODIG_C);
+  #endif
+  #if D_ON
     servoD.attach(SVODIG_D);
+  #endif
+  #if T_ON
     servoT.attach(SVODIG_T);
   #endif
 
@@ -201,157 +190,140 @@ void setup() {
     } 
   #endif
   
-  millisTime = millis();
-
-  priorT = 1800; // for rate limiting a servo, microseconds, middle range
+  jA = setup_joint();
+  jB = setup_joint();
+  jC = setup_joint();
+  jD = setup_joint();
+  jT = setup_joint();
   
-  pot = 500;  // VALUE IN MID RANGE SO THE MIN AND MAX WORK  
-  min_pot = 10000;  // USE FOR DETERMINING RANGE OF POT
-  max_pot = 0;
+}
 
-  // TRYING TO GET A MORE CONSISTENT INITIALIZATION
-  #if TUNE
-    // Change servo positions using write command (degrees):
-    //servo_tune.writeMicroseconds((SVO_MIN+SVO_MAX)/2);
-  #else
-    //servoA.writeMicroseconds((SVO_MIN_A+SVO_MAX_A)/2);
-    //servoB.writeMicroseconds((SVO_MIN_B+SVO_MAX_B)/2);
-    //servoC.writeMicroseconds((SVO_MIN_C+SVO_MAX_C)/2);
-    //servoD.writeMicroseconds((SVO_MIN_D+SVO_MAX_D)/2);
-    //servoT.writeMicroseconds((SVO_MIN_T+SVO_MAX_T)/2); 
-  #endif    
+void pot_min_max(joint & jt) {
+  jt.pot_min = min(jt.pot_value,jt.pot_min); // update min
+  jt.pot_max = max(jt.pot_value,jt.pot_max); // update max
+}
 
+void pot_map(joint & jt,int fromLow, int fromHigh, int toLow,int toHigh,boolean constr) {
+  // map(value, fromLow, fromHigh, toLow, toHigh), uses integer math
+  jt.pot_angle = map(jt.pot_value,fromLow,fromHigh,toLow,toHigh); 
+  if (constr) {
+    jt.pot_angle = constrain(jt.pot_angle,toLow,toHigh);
+  }
+  jt.arm_angle = jt.pot_angle;  // assume that the two are equal for now
+}
+
+void servo_map(joint & jt,int fromLow, int fromHigh, int toLow,int toHigh) {
+  // Maps joint angle to the servo microsecond value AND
+  // checks how much the servo has moved (and limits it if applicable)
+  //int delta_ms;
+  //jt.servo_ms_prior = jt.servo_ms; // save the prior value
+  jt.servo_ms = map(jt.arm_angle,fromLow,fromHigh,toLow,toHigh);
+  //
+  //delta_ms = jt.servo_ms_prior - jt.servo_ms;
+  //Serial.print(", DELTA,");
+  //Serial.print(delta_ms);
+  /*
+  if (delta_ms > SVO_RATE_LIMIT) { // greater positive than limit
+    jt.servo_ms = jt.servo_ms_prior - SVO_RATE_LIMIT;
+  } else if (delta_ms < -SVO_RATE_LIMIT) { // more negative than limit
+    jt.servo_ms = jt.servo_ms_prior + SVO_RATE_LIMIT;
+  }   
+  */
+}
+
+void log_data(joint jt,char jt_letter,boolean minmax) {
+  #if SERIALOUT
+    Serial.print(",");
+    Serial.print(jt_letter);
+    Serial.print(", pot_value,");
+    Serial.print(jt.pot_value);
+    Serial.print(", POTangle,");
+    Serial.print(1.0*jt.pot_angle/SCLR,1);
+    Serial.print(", ARMangle,");
+    Serial.print(1.0*jt.arm_angle/SCLR,1);
+    Serial.print(", servo_ms,");
+    Serial.print(jt.servo_ms);
+    if (minmax) {
+      Serial.print(", min_pot,");
+      Serial.print(jt.pot_min);
+      Serial.print(", max_pot,");
+      Serial.print(jt.pot_max);  
+    }
+  #endif
 }
 
 void loop() {
   millisTime = millis();
-
-  pot = analogRead(PIN);  // for tuning
-  
-  potA = analogRead(PIN_A);  // read joint A
-  potB = analogRead(PIN_B);  // read joint B
-  potC = analogRead(PIN_C);  // read joint C
-  potD = analogRead(PIN_D);  // read the claw
-  potT = analogRead(PIN_T);  // read the turntablee
-  
-  min_pot = min(min_pot,pot); // check for min value, for tuning
-  max_pot = max(max_pot,pot); // check for max value, for tuning
-
-  // Both map the pot value to degrees and constrain the angle, to prevent current overloads.
-  // map(value, fromLow, fromHigh, toLow, toHigh)
-
-  inputJoint = map(pot,POT_MIN,POT_MAX,INPUTARM_MIN*10,INPUTARM_MAX*10)/10.0;    // MAP POTENTIOMETER TO INPUT ANGLE
-  outputJoint = constrain((inputJoint),OUTPUTARM_MIN,OUTPUTARM_MAX);       // CALCULATE OUTPUT ANGLE
-  outputServo = map(outputJoint,OUTPUTARM_MIN,OUTPUTARM_MAX,SVO_MIN,SVO_MAX);  // MAP SERVO VALUE FROM OUTPUT ANGLE
-  
-  inputA = map(potA,POT_MIN_A,POT_MAX_A,INPUTARM_MIN_A,INPUTARM_MAX_A);    
-  outputA = constrain(inputA,OUTPUTARM_MIN_A,OUTPUTARM_MAX_A);
-  inputB = map(potB,POT_MIN_B,POT_MAX_B,INPUTARM_MIN_B,INPUTARM_MAX_B);    
-  outputB = outputA + inputB;
-  outputB = constrain(outputB,OUTPUTARM_MIN_B,OUTPUTARM_MAX_B);
-  // The C potentiometer is for tuning the Claw position.
-  tuneCangle = constrain(potC,POT_MIN_C,POT_MAX_C);
-  // want the claw to be always pointed down, except limit range to > -120 deg to prevent damage
-  //outputC = -90 - outputB + tuneCangle+10.0;
-  outputC = -90 - outputB;
-  if (outputC < -100.0) { outputC = -100.0;  }
-  inputD = map(potD,POT_MIN_D,POT_MAX_D,INPUTARM_MIN_D,INPUTARM_MAX_D);    
-  inputT = map(potT,POT_MIN_T,POT_MAX_T,INPUTARM_MIN_T,INPUTARM_MAX_T);    
-  outputT = constrain(inputT,OUTPUTARM_MIN_T,OUTPUTARM_MAX_T);
-  
-  output_servoA = map(outputA,OUTPUTARM_MIN_A,OUTPUTARM_MAX_A,SVO_MIN_A,SVO_MAX_A);  // MAP SERVO VALUE FROM OUTPUT ANGLE
-  output_servoB = map(outputB,OUTPUTARM_MIN_B,OUTPUTARM_MAX_B,SVO_MIN_B,SVO_MAX_B);  // MAP SERVO VALUE FROM OUTPUT ANGLE
-  output_servoC = map(outputC,OUTPUTARM_MIN_C,OUTPUTARM_MAX_C,SVO_MIN_C,SVO_MAX_C);  // MAP SERVO VALUE FROM OUTPUT ANGLE
-  output_servoD = map(inputD,OUTPUTARM_MIN_D,OUTPUTARM_MAX_D,SVO_MIN_D,SVO_MAX_D);  // MAP SERVO VALUE FROM OUTPUT ANGLE
-  output_servoT = map(outputT,OUTPUTARM_MIN_T,OUTPUTARM_MAX_T,SVO_MIN_T,SVO_MAX_T);  // MAP SERVO VALUE FROM OUTPUT ANGLE
-
-  /* rate limit the Turntable servo
-  deltaT = priorT-output_servoT;
-  if (deltaT > SVO_RATE_LIMIT) { // greater positive than limit
-    priorT = priorT - SVO_RATE_LIMIT;
-  } else if (deltaT < -SVO_RATE_LIMIT) { // more negative than limit
-    priorT = priorT + SVO_RATE_LIMIT;
-  } else { // within the limit
-    priorT = output_servoT;
-  }
-  */
-  
-  // calculate c arm positions from angles
-  //cx = lenAB*cos(outputA*1000 / 57296) + lenBC*cos(outputB*1000 / 57296);
-  cy = lenAB*sin(outputA*1000 / 57296) + lenBC*sin(outputB*1000 / 57296);
-   
-  /* IF C IS TOO LOW, MODIFY KINEMATICS TO PREVENT ARM FROM RUNNING INTO THE GROUND
-  if (cy < 0) {
-    inverse_arm_kinematics(cx,0.0);
-   Serial.print(", new_ang_a,");
-    Serial.print(new_ang_a*RADIAN);
-    Serial.print(", new_ang_b,");
-    Serial.print(new_ang_b*RADIAN);
-  }
-    //angles = (c[2] > A_Z_shift) ? [Arob,Brob] : inverse_arm_kinematics([0,c[1],0],lenAB=lenAB,lenBC=lenBC); 
-        // calculate NEW b and c positions from angles
-    //br2=[0,lenAB*cos(angles[0]),lenAB*sin(angles[0])];  // B relative location
-    //b2=a+br2; // B absolute
-    //ba2 = (c[2]>A_Z_shift) ? Brob : -(180-angles[0]-angles[1]);  // Angle of BC arm relative to horizontal
-   //cr2 = [0,cos(ba2)*lenBC,sin(ba2)*lenBC];
-    //c2=b2+cr2;  // C absolute
-*/
-  
-  #if TUNE
-    // Change servo positions using write command (degrees):
-    servo_tune.writeMicroseconds(outputServo);
-  #else
-    servoA.writeMicroseconds(output_servoA);
-    servoB.writeMicroseconds(output_servoB);
-    servoC.writeMicroseconds(output_servoC);
-    servoD.writeMicroseconds(output_servoD);
-    servoT.writeMicroseconds(output_servoT);  // rate limited
-  #endif    
-
   #if SERIALOUT
     // output for debugging
     // Serial.print(val,digits)
     Serial.print("millis,");
     Serial.print(millisTime);
-    #if TUNE
-      Serial.print(", PIN,");
-      Serial.print(PIN);
-      Serial.print(", pot,");
-      Serial.print(pot);  
-      Serial.print(", min_pot,");
-      Serial.print(min_pot);
-      Serial.print(", max_pot,");
-      Serial.print(max_pot);
-      Serial.print(", inputJoint,");
-      Serial.print(inputJoint,1);
-      Serial.print(", outputJoint,");
-      Serial.print(outputJoint,1);
-      Serial.print(", outputServo,");
-      Serial.print(outputServo);
-    #else
-      Serial.print(", inputA,");
-      Serial.print(inputA,1);
-      Serial.print(", inputB,");
-      Serial.print(inputB,1);
-      Serial.print(", outputB,");
-      Serial.print(outputB,1);
-      Serial.print(", outputC,");
-      Serial.print(outputC,1);
-      Serial.print(", tuneC,");
-      Serial.print(tuneCangle,1);
-      Serial.print(", outputD,");
-      Serial.print(inputD,1);
-      Serial.print(", outputT,");
-      Serial.print(outputT,1);
-      Serial.print(", cy,");
-      Serial.print(cy,1);
-      if (outputC < -100.0) {
-        Serial.print(", outputC<-100,");
-        }
-      if (cy < 0.0) {
-        Serial.print(", cy<0,");
-        }
-    #endif  
+  #endif
+
+  jA.pot_value = analogRead(PIN_A);  // read joint A
+  jB.pot_value = analogRead(PIN_B);  // read joint B
+  jC.pot_value = analogRead(PIN_C);  // read joint C (tuner pot)
+  jD.pot_value = analogRead(PIN_D);  // read the claw
+  jT.pot_value = analogRead(PIN_T);  // read the turntable
+  
+  pot_min_max(jA);
+  pot_min_max(jB);
+  pot_min_max(jC);
+  pot_min_max(jD);
+  pot_min_max(jT);
+
+  pot_map(jA,POT_MIN_A,POT_MAX_A,IA_MIN_A,IA_MAX_A,true);
+
+  pot_map(jB,POT_MIN_B,POT_MAX_B,IA_MIN_B,IA_MAX_B,false);
+  jB.arm_angle = constrain((jA.arm_angle + jB.pot_angle),OA_MIN_B,OA_MAX_B);  
+  
+  // want the claw (joint C) to default to pointed down
+  // The C potentiometer is for tuning (adding to) the C position.
+  pot_map(jC,POT_MIN_C,POT_MAX_C,IA_MIN_C,IA_MAX_C,false);
+  jC.pot_angle = -jC.pot_angle + 10*SCLR;  // REVERSED, TO BE TUNNED
+  jC.arm_angle = -90*SCLR -jB.arm_angle + jC.pot_angle;
+
+  // Joint D is the Claw... sorry confusing, but C was taken
+  pot_map(jD,POT_MIN_D,POT_MAX_D,IA_MIN_D,IA_MAX_D,true);
+
+  pot_map(jT,POT_MIN_T,POT_MAX_T,IA_MIN_T,IA_MAX_T,true);
+  jT.arm_angle = -jT.pot_angle;  // reverse the angle
+
+  // GET SERVO VALUE FROM ROBOT ARM OUTPUT ANGLE
+  servo_map(jA,OA_MIN_A,OA_MAX_A,SVO_MIN_A,SVO_MAX_A);
+  servo_map(jB,OA_MIN_B,OA_MAX_B,SVO_MIN_B,SVO_MAX_B);  
+  servo_map(jC,OA_MIN_C,OA_MAX_C,SVO_MIN_C,SVO_MAX_C); 
+  servo_map(jD,OA_MIN_D,OA_MAX_D,SVO_MIN_D,SVO_MAX_D); 
+  servo_map(jT,OA_MIN_T,OA_MAX_T,SVO_MIN_T,SVO_MAX_T); 
+
+  // calculate c arm positions from angles
+  //cx = lenAB*cos(outputA*1000 / 57296) + lenBC*cos(outputB*1000 / 57296);
+  //cy = lenAB*sin(outputA*1000 / 57296) + lenBC*sin(outputB*1000 / 57296);
+  
+  #if A_ON
+    servoA.writeMicroseconds(jA.servo_ms);
+  #endif
+  #if B_ON
+    servoB.writeMicroseconds(jB.servo_ms);
+  #endif
+  #if C_ON
+    servoC.writeMicroseconds(jC.servo_ms);
+  #endif
+  #if D_ON
+    servoD.writeMicroseconds(jD.servo_ms);
+  #endif
+  #if T_ON
+    servoT.writeMicroseconds(jT.servo_ms);
+  #endif
+
+  log_data(jA,'A',false);
+  log_data(jB,'B',false);
+  log_data(jC,'C',false);
+  log_data(jD,'D',false);
+  log_data(jT,'T',false);
+
+  #if SERIALOUT
     Serial.println(", END");
   #endif
 }
