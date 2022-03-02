@@ -1,16 +1,17 @@
 /* ROBOT ARM CONTROL SOFTWARE
  *  By, SrAmo, February 2022
+ *  Lesson Learned: Short loop times equals smooth arm performance.
+ *  Turning off serial output makes loops much faster.
+ *  Using int rather than float or double makes loops faster.
+ *  Turn off any unnesessary code.
+ *  Trying to manage the servo rate made things worse.
  */
 #include <Servo.h>  // servo library
 // Servo Function library at: http://arduino.cc/en/Reference/Servo
 
 #define SERIALOUT false  // Controlls SERIAL output. Turn off when not debugging. 
 
-// RATE LIMITING MAKE THE INITIALIZATION JUMPY!!!  ALSO, DOES NOT SEEM TO HELP
-#define SVO_RATE_LIMIT 5 // Max servo microsecond change in a loop (to smooth operation)
-//  rate limit = 50 for serial on, rate limit = 10 for serial off
-
-#define SCLR 10  // scaler used to improve accuracy of int variables
+#define SCLR 100  // scaler used to improve accuracy of int variables
 
 // TRUE WHEN TUNING ONE POT/SERVO,  FALSE WHEN DOING ALL SERVOS
 #define A_ON true
@@ -99,7 +100,6 @@ const int OA_MAX_T = 50*SCLR;  // DEG, was 70
 #define SVO_MAX_T 2300  // microseconds
 
 // ##### GLOBAL VARIABLES #####
-Servo servo_tune;  // servo for tuning
 Servo servoA,servoB,servoC,servoD,servoT;  // servos for robot arm
 
 struct joint {
@@ -116,43 +116,8 @@ struct joint jA,jB,jC,jD,jT;
 unsigned long millisTime;
 //float cx,cy;
 
-/*
-float otheracos(float x)
-{
-  float negate = float(x < 0);
-  float ret = -0.0187293;
-  x = abs(x);
-  ret = x * -0.0187293;
-  ret += 0.0742610;
-  ret *= x;
-  ret -= 0.2121144;
-  ret *= x;
-  ret += 1.5707288;
-  ret *= sqrt(1.0 - x);
-  ret = ret - 2.0 * negate * ret;
-  return negate * 3.14159265358979 + ret;
-} 
-//function inverse_arm_kinematics (c=[0,10,0],lenAB=100,lenBC=120) = 
-//  ASSUMES THAT c is on the YZ plane (x is ignored)
-//  ASSUMES that A is at [0,0,0]
-void inverse_arm_kinematics(float cx,float cy) {
-  // calculate the angles given pt C ***Inverse Kinematics***
-  // Assumes that joint A of the robot arm is at 0,0  
-  float temp,c_len, sub_angle1, sub_angle2;
-  c_len = sqrt(pow(cx,2)+pow(cy,2));
-  sub_angle1 = atan2(cy,cx);
-  sub_angle2 = acos((pow(c_len,2)+pow(lenAB,2)-pow(lenBC,2))/(2*c_len*lenAB));
-  new_ang_a = sub_angle1 + sub_angle2;
-  new_ang_b = acos((pow(lenBC,2)+pow(lenAB,2)-pow(c_len,2))/(2*lenBC*lenAB));
-  return;  // no return value
-} */
-
-int int_map(int x, int in_min, int in_max, int out_min, int out_max)
-{
-  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
-}
-
 joint setup_joint() {
+  // Initialize the variables in a joint struct
   struct joint jt;
   jt.pot_angle = 500;
   jt.pot_min = 10000;
@@ -194,11 +159,12 @@ void setup() {
   jB = setup_joint();
   jC = setup_joint();
   jD = setup_joint();
-  jT = setup_joint();
-  
+  jT = setup_joint(); 
 }
 
 void pot_min_max(joint & jt) {
+  // Save min and max pot values. Sweep pots, read values.
+  // Not needed when Serial is off.
   jt.pot_min = min(jt.pot_value,jt.pot_min); // update min
   jt.pot_max = max(jt.pot_value,jt.pot_max); // update max
 }
@@ -213,22 +179,8 @@ void pot_map(joint & jt,int fromLow, int fromHigh, int toLow,int toHigh,boolean 
 }
 
 void servo_map(joint & jt,int fromLow, int fromHigh, int toLow,int toHigh) {
-  // Maps joint angle to the servo microsecond value AND
-  // checks how much the servo has moved (and limits it if applicable)
-  //int delta_ms;
-  //jt.servo_ms_prior = jt.servo_ms; // save the prior value
+  // Maps joint angle to the servo microsecond value
   jt.servo_ms = map(jt.arm_angle,fromLow,fromHigh,toLow,toHigh);
-  //
-  //delta_ms = jt.servo_ms_prior - jt.servo_ms;
-  //Serial.print(", DELTA,");
-  //Serial.print(delta_ms);
-  /*
-  if (delta_ms > SVO_RATE_LIMIT) { // greater positive than limit
-    jt.servo_ms = jt.servo_ms_prior - SVO_RATE_LIMIT;
-  } else if (delta_ms < -SVO_RATE_LIMIT) { // more negative than limit
-    jt.servo_ms = jt.servo_ms_prior + SVO_RATE_LIMIT;
-  }   
-  */
 }
 
 void log_data(joint jt,char jt_letter,boolean minmax) {
@@ -253,8 +205,8 @@ void log_data(joint jt,char jt_letter,boolean minmax) {
 }
 
 void loop() {
-  millisTime = millis();
   #if SERIALOUT
+    millisTime = millis();
     // output for debugging
     // Serial.print(val,digits)
     Serial.print("millis,");
@@ -267,11 +219,13 @@ void loop() {
   jD.pot_value = analogRead(PIN_D);  // read the claw
   jT.pot_value = analogRead(PIN_T);  // read the turntable
   
-  pot_min_max(jA);
-  pot_min_max(jB);
-  pot_min_max(jC);
-  pot_min_max(jD);
-  pot_min_max(jT);
+  #if SERIALOUT
+    pot_min_max(jA);
+    pot_min_max(jB);
+    pot_min_max(jC);
+    pot_min_max(jD);
+    pot_min_max(jT);
+  #endif
 
   pot_map(jA,POT_MIN_A,POT_MAX_A,IA_MIN_A,IA_MAX_A,true);
 
@@ -317,13 +271,12 @@ void loop() {
     servoT.writeMicroseconds(jT.servo_ms);
   #endif
 
-  log_data(jA,'A',false);
-  log_data(jB,'B',false);
-  log_data(jC,'C',false);
-  log_data(jD,'D',false);
-  log_data(jT,'T',false);
-
   #if SERIALOUT
+    log_data(jA,'A',false);
+    log_data(jB,'B',false);
+    log_data(jC,'C',false);
+    log_data(jD,'D',false);
+    log_data(jT,'T',false);
     Serial.println(", END");
   #endif
 }
