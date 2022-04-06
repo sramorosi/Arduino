@@ -1,24 +1,27 @@
 /* ROBOT ARM CONTROL SOFTWARE
- *  By, SrAmo, February 2022
+ *  By, SrAmo, April 2022
  *  Lesson Learned: Short loop times equals smooth arm performance.
  *  Turning off serial output makes loops much faster.
  *  Using int rather than float or double makes loops faster.
  *  Turn off any unnesessary code.
- *  Trying to manage the servo rate made things worse.
  */
 #include <Servo.h>  // servo library
 // Servo Function library at: http://arduino.cc/en/Reference/Servo
 
-#define SERIALOUT false  // Controlls SERIAL output. Turn off when not debugging. 
+#define SERIALOUT false  // Controlls SERIAL output. Turn on when debugging. 
 
-#define SCLR 100  // scaler used to improve accuracy of int variables
+#define SCLR 100  // scaler used to improve accuracy of int (angle) variables
 
-// TRUE WHEN TUNING ONE POT/SERVO,  FALSE WHEN DOING ALL SERVOS
+// Booleans to turn on Servos. [bad code can damage servos. This can help isolate]
 #define A_ON true
 #define B_ON true
 #define C_ON true
 #define D_ON true
 #define T_ON true
+
+// SERVO RATE LIMITING TO PREVENT DAMAGE
+//  rate limit = 50?? for serial on, rate limit = ~1 for serial off
+#define SVO_RATE_LIMIT 1 // Max servo microsecond change in a loop (to smooth operation)
 
 //#define lenAB 50.0     // Length of Input AB arm in mm
 //#define lenBC 60.0     // Length of Input BC arm in mm
@@ -30,7 +33,7 @@
 // Use IA_ constants to map the Input Angle (deg)for a given potentiometer value
 // Compute Output Arm Angles from INPUTS and map() to compute value for servos.
 // Use SVODIG_ to identify the digital pin that the servo is attached to.
-// Use SVO_ constants to set servo range in microseconds 
+// Use SVO_ constants to set servo range in microseconds. Also used to Constrain output.
 // Values are microseconds (~700 to ~2300--SERVOS MUST BE TESTED), REGARDLESS OF SERVO RANGE
 // 270 deg servo, gets 260 deg motion with 500 to 2800 microsecond range
 // 180 deg servo, gets 160 deg motion with 500 to 2800 microsecond range
@@ -71,7 +74,7 @@ const int IA_MAX_C = 40*SCLR;  // DEG CCW (40) Smaller than actual angle
 #define SVODIG_C 6   // Currently 180 deg servo. Could TO UPGRADE TO 270 DEG SERVO
 const int OA_MIN_C = -100*SCLR;
 const int OA_MAX_C = 40*SCLR;
-#define SVO_MIN_C 2200   // microseconds
+#define SVO_MIN_C 2800   // microseconds
 #define SVO_MAX_C 500  // microseconds
 
 // JOINT D (CLAW), Analog 2 input pin, Digital 10 output pin
@@ -90,14 +93,17 @@ const int OA_MAX_D = 160*SCLR;  // DEG
 #define PIN_T 0
 #define POT_MIN_T 130
 #define POT_MAX_T 930
-const int IA_MIN_T = -90*SCLR;  // DEG
-const int IA_MAX_T = 100*SCLR;  // DEG
+const int IA_MIN_T = -70*SCLR;  // DEG
+const int IA_MAX_T = 80*SCLR;  // DEG
 #define SVODIG_T 11
 // straight out is at 0 DEG, XXX microseconds
 const int OA_MIN_T = -25*SCLR;  // DEG, was -45
 const int OA_MAX_T = 50*SCLR;  // DEG, was 70
 #define SVO_MIN_T 500   // microseconds
-#define SVO_MAX_T 2300  // microseconds
+#define SVO_MAX_T 3000  // microseconds
+
+// SELECTOR, FUTURE IMPLEMENTATION. Analog 3 input pin
+#define PIN_S 3
 
 // ##### GLOBAL VARIABLES #####
 Servo servoA,servoB,servoC,servoD,servoT;  // servos for robot arm
@@ -111,9 +117,9 @@ struct joint {
   int servo_ms;   // servo command in microseconds
   int servo_ms_prior; // used to look at servo rate of change
 };
-struct joint jA,jB,jC,jD,jT;
+struct joint jA,jB,jC,jD,jT,jS;
 
-unsigned long millisTime;
+unsigned long millisTime, startTime;
 //float cx,cy;
 
 joint setup_joint() {
@@ -123,12 +129,14 @@ joint setup_joint() {
   jt.pot_min = 10000;
   jt.pot_max = 0;
   jt.arm_angle = 0;
-  jt.servo_ms = 1000;
-  jt.servo_ms_prior = 1000;
+  jt.servo_ms = 1500;
+  jt.servo_ms_prior = 1500;
   return jt;
 }
 
 void setup() {
+  startTime = millis()+1000; // record time when turned on, to allow potentiometer values to settle
+
   #if A_ON
     servoA.attach(SVODIG_A);
   #endif
@@ -160,6 +168,7 @@ void setup() {
   jC = setup_joint();
   jD = setup_joint();
   jT = setup_joint(); 
+  jS = setup_joint();
 }
 
 void pot_min_max(joint & jt) {
@@ -179,8 +188,29 @@ void pot_map(joint & jt,int fromLow, int fromHigh, int toLow,int toHigh,boolean 
 }
 
 void servo_map(joint & jt,int fromLow, int fromHigh, int toLow,int toHigh) {
+  int delta_ms;
+  
+  jt.servo_ms_prior = jt.servo_ms; // save the prior value
+
   // Maps joint angle to the servo microsecond value
   jt.servo_ms = map(jt.arm_angle,fromLow,fromHigh,toLow,toHigh);
+  if (toLow < toHigh) {
+    jt.servo_ms = constrain(jt.servo_ms,toLow,toHigh);
+  } else {
+    jt.servo_ms = constrain(jt.servo_ms,toHigh,toLow);
+  }
+
+  //  Rate limiting
+  delta_ms = jt.servo_ms_prior - jt.servo_ms;
+  //Serial.print(", DELTA,");
+  //Serial.print(delta_ms);
+  //
+  if (delta_ms > SVO_RATE_LIMIT) { // greater positive than limit
+    jt.servo_ms = jt.servo_ms_prior - SVO_RATE_LIMIT;
+  } else if (delta_ms < -SVO_RATE_LIMIT) { // more negative than limit
+    jt.servo_ms = jt.servo_ms_prior + SVO_RATE_LIMIT;
+  }   
+  //
 }
 
 void log_data(joint jt,char jt_letter,boolean minmax) {
@@ -205,8 +235,10 @@ void log_data(joint jt,char jt_letter,boolean minmax) {
 }
 
 void loop() {
+  
+  millisTime = millis();
+  
   #if SERIALOUT
-    millisTime = millis();
     // output for debugging
     // Serial.print(val,digits)
     Serial.print("millis,");
@@ -218,6 +250,7 @@ void loop() {
   jC.pot_value = analogRead(PIN_C);  // read joint C (tuner pot)
   jD.pot_value = analogRead(PIN_D);  // read the claw
   jT.pot_value = analogRead(PIN_T);  // read the turntable
+  jS.pot_value = analogRead(PIN_S);
   
   #if SERIALOUT
     pot_min_max(jA);
@@ -254,7 +287,8 @@ void loop() {
   // calculate c arm positions from angles
   //cx = lenAB*cos(outputA*1000 / 57296) + lenBC*cos(outputB*1000 / 57296);
   //cy = lenAB*sin(outputA*1000 / 57296) + lenBC*sin(outputB*1000 / 57296);
-  
+
+  if (millisTime > startTime) {
   #if A_ON
     servoA.writeMicroseconds(jA.servo_ms);
   #endif
@@ -270,8 +304,10 @@ void loop() {
   #if T_ON
     servoT.writeMicroseconds(jT.servo_ms);
   #endif
+  }
 
   #if SERIALOUT
+    //log_data(jS,'S',false);
     log_data(jA,'A',false);
     log_data(jB,'B',false);
     log_data(jC,'C',false);

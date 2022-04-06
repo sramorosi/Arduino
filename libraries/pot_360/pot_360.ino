@@ -29,13 +29,14 @@ void loop() {
     }
   } else {
     if ((val2>LOWMV) && (val2 < HIGHMV)) {
-       valmv = val2;
+       valmv = val2 - OFFSET;
     } else {
-      valmv = val1 + MIDMV;
+      valmv = val1 + MIDMV + OFFSET;
     }
   }
+  valmv = valmv - MIDMV/2; // important offset
 
-  deg = map(valmv,150,2*MAXMV+150,0,3600)/10.0;
+  deg = map(valmv,0,2*MAXMV,0,3600)/10.0;
   
   // output for debugging
   // Serial.print(val,digits)

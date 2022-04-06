@@ -47,10 +47,10 @@ void servo_map(joint & jt,int fromLow, int fromHigh, int toLow,int toHigh) {
   int delta_ms;
   jt.servo_ms_prior = jt.servo_ms; // save the prior value
 
-  /*  Rate limiting made performance worst.
+  /*  Rate limiting
   delta_ms = jt.servo_ms_prior - jt.servo_ms;
-  Serial.print(", DELTA,");
-  Serial.print(delta_ms);
+  //Serial.print(", DELTA,");
+  //Serial.print(delta_ms);
   
   if (delta_ms > SVO_RATE_LIMIT) { // greater positive than limit
     jt.servo_ms = jt.servo_ms_prior - SVO_RATE_LIMIT;
