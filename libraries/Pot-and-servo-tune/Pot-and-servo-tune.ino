@@ -8,12 +8,14 @@
 #include <Servo.h>  // servo library
 // Servo Function library at: http://arduino.cc/en/Reference/Servo
 
-#define SERIALOUT true  // Controlls SERIAL output. Turn on when debugging. 
+#define SERIALOUT false  // Controlls SERIAL output. Turn on when debugging. 
 // SERIAL OUTPUT AFFECTS SMOOTHNESS OF SERVO PERFORMANCE 
 //  WITH SERIAL true AND LOW 9600 BAUD RATE = JERKY PERFORMANCE
 //  WITH false OR HIGH 500000 BAUD RATE = SMOOTH PERFORMANCE
 
 float V_MAX = 0.05; // Angular Velocity Limit, DEGREES PER MILLISECOND (~20 is full speed)
+// Servos Max Velocity is about 60 deg in 0.12 sec or 460 deg/sec, or 0.46 degrees per millisecond
+// This assumes no load and full (7 V) voltage.
 
 // Angular Acceleration Limit. This does not seem to work. Acceleration switches sign frequently.
 //const float A_MAX = 0.1; //DEGREES PER MILLISECOND^2  ACCELERATION LIMITING DOESN'T WORK
@@ -55,9 +57,9 @@ float V_MAX = 0.05; // Angular Velocity Limit, DEGREES PER MILLISECOND (~20 is f
 // JOINT A, Analog 4 input pin, Digital 9 output
 #define PIN_A 4
 #define POT_MIN_A 134
-#define POT_MAX_A 870
+#define POT_MAX_A 485
 const float IA_MIN_A = 2.0;
-const float IA_MAX_A = 175.0;
+const float IA_MAX_A = 90.0;
 #define SVODIG_A 9
 const float OA_MIN_A = 0.0;  // DEG
 const float OA_MAX_A = 170.0;  // DEG SHOULD BE same as input limits?
@@ -66,10 +68,10 @@ const float OA_MAX_A = 170.0;  // DEG SHOULD BE same as input limits?
 
 // JOINT B, Analog 1 input pin, Digital 5 output pin
 #define PIN_B 1
-#define POT_MIN_B  1
+#define POT_MIN_B  131
 #define POT_MAX_B 500
-const float IA_MIN_B = -130.0;
-const float IA_MAX_B = 1.0;
+const float IA_MIN_B = -90.0;
+const float IA_MAX_B = 0.0;
 #define SVODIG_B 5
 const float OA_MIN_B = -50.0;  // IA_MIN + 90??
 const float OA_MAX_B = 90.0;  // IA_MAX - 90??
@@ -128,6 +130,7 @@ const float IA_MAX_S = 270.0;  // DEG
 // path1 is  an elipse (100mm , 200mm) drawn on the floor, from OpenSCAD
 static float path1[][3] ={{34.7317, -37.3821, 0}, {34.775, -37.4545, 8.8903}, {35.3858, -38.4718, 17.1517}, {37.6735, -42.2564, 24.2746}, {42.4945, -50.0908, 29.8915}, {49.887, -61.6998, 33.6901}, {59.3819, -75.7947, 35.2545}, {70.3676, -90.7694, 33.8524}, {81.9162, -104.731, 28.2158}, {91.8898, -115.18, 16.7852}, {96.146, -119.173, 0}, {91.8898, -115.18, -16.7852}, {81.9162, -104.731, -28.2158}, {70.3676, -90.7694, -33.8524}, {59.3819, -75.7947, -35.2545}, {49.887, -61.6998, -33.6901}, {42.4945, -50.0908, -29.8915}, {37.6735, -42.2564, -24.2746}, {35.3858, -38.4718, -17.1517}, {34.775, -37.4545, -8.8903}}
 ;
+static int path1_size = sizeof(path1)/(3*4);  // sizeof returns bytes in the array.  4 bytes per float. 
 
 // ##### GLOBAL VARIABLES #####
 Servo servoA,servoB,servoC,servoD,servoT,servoS;  // servos for robot arm
@@ -176,7 +179,10 @@ void setup() {
     while (!Serial) {
       ; // wait for serial port to connect. Needed for native USB port only
     } 
-  #endif
+    Serial.print("path1_size,");
+    Serial.print(path1_size);
+    Serial.println(",END");
+   #endif
 
   // Set booleans so that all Functions get Initialized
   f1_init = true;
@@ -242,8 +248,8 @@ void servo_map(joint & jt,int fromLow, int fromHigh, int toLow,int toHigh) {
   } else {
     jt.servo_ms = constrain(jt.servo_ms,toHigh,toLow);
   }
-  
 }
+
 void servo_map_with_limits(joint & jt,int fromLow, int fromHigh, int toLow,int toHigh,float rate) {
 // WITH rate limiting
 // SERVO RATE LIMITING, for smooth operation and prevent damage
@@ -283,14 +289,16 @@ void log_data(joint jt,char jt_letter,boolean minmax) {
   #if SERIALOUT
     Serial.print(",");
     Serial.print(jt_letter);
-   // Serial.print(", pot_value,");
-   // Serial.print(jt.pot_value);
-  //  Serial.print(", POTangle,");
-  //  Serial.print(jt.pot_angle,1);
-    Serial.print(", DESARMangle,");
+    Serial.print(", pot_value,");
+    Serial.print(jt.pot_value);
+    Serial.print(", POTangle,");
+    Serial.print(jt.pot_angle,1);
+//    Serial.print(", PrevAngle,");
+//    Serial.print(jt.previous_angle,1);
+    Serial.print(", DESAngle,");
     Serial.print(jt.desired_angle,1);
-    Serial.print(", servo_ms,");
-    Serial.print(jt.servo_ms);
+//    Serial.print(", servo_ms,");
+//    Serial.print(jt.servo_ms);
     if (minmax) {
       Serial.print(", min_pot,");
       Serial.print(jt.pot_min);
@@ -308,19 +316,23 @@ boolean update_done(joint jt1,joint jt2,joint jt3){
   error3 = abs(jt3.desired_angle-jt3.previous_angle);
   
   if (error1 < 1.0 && error2 < 1.0 && error3 < 1.0) {
+      #if SERIALOUT
+        Serial.print(",ud-done,");
+      #endif
     return true;
-    Serial.print(",update done,");
   } else {
+        #if SERIALOUT
+          Serial.print(",ud-NOT-done,");
+        #endif
     return false;
-    Serial.print(",update NOT done,");
   }
 }
 
 void f1_loop() {
-  Serial.print(",new_seg,");
-  Serial.print(new_segment);
-  Serial.print(",f1_index,");
-  Serial.print(f1_index);
+    #if SERIALOUT
+    Serial.print(",f1_index,");
+    Serial.print(f1_index);
+    #endif
   // reads the path array and moves the arm
   if (f1_init) {
     // first time in this function, do initialize
@@ -330,43 +342,37 @@ void f1_loop() {
     f3_init=true;
     
      // initialize joints
-    jA.desired_angle = 110.0;
-    jB.desired_angle = 10.0;
+    jA.desired_angle = 120.0;
+    jB.desired_angle = 20.0;
     jC.desired_angle = -70.0;
     jD.desired_angle = 80.0;
     jT.desired_angle = 0.0;  
 
-    V_MAX = 0.01;
+    V_MAX = 0.05;
     f1_index = 0;
     new_segment = true;
 
-  } else {
-    if (new_segment) {
-      // INITIALIZE, DO THIS ONCE PER SEGMENT
-      jA.pot_angle=path1[f1_index][0];
-      jA.desired_angle=jA.pot_angle;
-      
-      jB.pot_angle=path1[f1_index][1];
-      jB.desired_angle = constrain((jA.desired_angle + jB.pot_angle),OA_MIN_B,OA_MAX_B);  
-      
-      jT.pot_angle=path1[f1_index][2];
-      jT.desired_angle=jT.pot_angle;
-
-      new_segment = false;
-    } else {
-      if (update_done(jA,jB,jT)) {
-        if (f1_index < path1) {
+  } else if (update_done(jA,jB,jT)) {
+        if (f1_index < path1_size-1) { // step through the array
           f1_index +=1;
+          jA.pot_angle=path1[f1_index][0];
+          jA.desired_angle=jA.pot_angle;
+          
+          jB.pot_angle=path1[f1_index][1];
+          jB.desired_angle = constrain((jA.desired_angle + jB.pot_angle),OA_MIN_B,OA_MAX_B);  
+//          jB.desired_angle = jB.pot_angle; // no need for the A + B
+          
+          jT.pot_angle=path1[f1_index][2];
+          jT.desired_angle=jT.pot_angle;
+        } else { // Done with array, restart the array
+          f1_index = 0;
           new_segment = true;
-        } else {
-          f1_init = true;        
+          //f1_init = true;        
         }
       } else {
         // LOOP UNTIL THE ANGLES ARE MET... UNTIL DONE ROUTINE        
       }
     }
-  }
-}
 
 void f2_loop() {
   // F2 - HOLD
@@ -402,7 +408,7 @@ void f3_loop() {
     
   } else {
     // main loop
-    pot_map(jA,POT_MIN_A,POT_MAX_A,IA_MIN_A,IA_MAX_A,true);
+    pot_map(jA,POT_MIN_A,POT_MAX_A,IA_MIN_A,IA_MAX_A,false);
   
     pot_map(jB,POT_MIN_B,POT_MAX_B,IA_MIN_B,IA_MAX_B,false);
     jB.desired_angle = constrain((jA.desired_angle + jB.pot_angle),OA_MIN_B,OA_MAX_B);  
@@ -415,10 +421,10 @@ void f3_loop() {
     //jC.desired_angle =  jC.pot_angle;
   
     // Joint D is the Claw... sorry confusing, but C was taken
-    pot_map(jD,POT_MIN_D,POT_MAX_D,IA_MIN_D,IA_MAX_D,true);
+    pot_map(jD,POT_MIN_D,POT_MAX_D,IA_MIN_D,IA_MAX_D,false);
   
     // Turntable
-    pot_map(jT,POT_MIN_T,POT_MAX_T,IA_MIN_T,IA_MAX_T,true);
+    pot_map(jT,POT_MIN_T,POT_MAX_T,IA_MIN_T,IA_MAX_T,false);
     jT.desired_angle = -jT.pot_angle;  // reverse the angle
     
     // calculate c arm positions from angles
@@ -445,36 +451,36 @@ void loop() {
     millisTime = millis();
     Serial.print("millis,");
     Serial.print(millisTime);
-    Serial.print(",f1-f2-f3_init,");
-    Serial.print(f1_init);
-    Serial.print(",");
-    Serial.print(f2_init);
-    Serial.print(",");
-    Serial.print(f3_init);
 /*
     pot_min_max(jA);
     pot_min_max(jB);
     pot_min_max(jC);
     pot_min_max(jD);
     pot_min_max(jT);
-    */
+*/
   #endif
 
   // get Selector angle, if required
   pot_map(jS,POT_MIN_S,POT_MAX_S,IA_MIN_S,IA_MAX_S,false);
 
-  if (jS.pot_value > 400) {
+  if (jS.pot_value < 400) {
     // Function 1 = draw a path
-    Serial.print(",F1-PATH,");
+    #if SERIALOUT
+      Serial.print(",F1-PATH,");
+    #endif
     f1_loop();
-  } if (jS.pot_value < 600) {
-    // Function = manual arm control
-    Serial.print(",F3-MANUAL,");
-    f3_loop();    
-  } else {
+  } else if (jS.pot_value < 600) {
     // Function 2 = hold in initialize position
-    Serial.print(",F2-HOLD,");
+    #if SERIALOUT
+      Serial.print(",F2-HOLD,");
+    #endif
     f2_loop();
+  } else {
+    // Function = manual arm control
+    #if SERIALOUT
+      Serial.print(",F3-MANUAL,");
+    #endif
+    f3_loop();    
   }
   // GET SERVO VALUE FROM ROBOT ARM OUTPUT ANGLE
   servo_map_with_limits(jA,OA_MIN_A,OA_MAX_A,SVO_MIN_A,SVO_MAX_A,V_MAX);
@@ -505,6 +511,12 @@ void loop() {
   #endif
 */
   #if SERIALOUT
+    Serial.print(",f1-f2-f3_init,");
+    Serial.print(f1_init);
+    Serial.print(",");
+    Serial.print(f2_init);
+    Serial.print(",");
+    Serial.print(f3_init);
     log_data(jA,'A',false);
     log_data(jB,'B',false);
     //log_data(jC,'C',false);
