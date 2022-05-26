@@ -8,12 +8,12 @@
 #include <Servo.h>  // servo library
 // Servo Function library at: http://arduino.cc/en/Reference/Servo
 
-#define SERIALOUT true  // Controlls SERIAL output. Turn on when debugging. 
+#define SERIALOUT false  // Controlls SERIAL output. Turn on when debugging. 
 // SERIAL OUTPUT AFFECTS SMOOTHNESS OF SERVO PERFORMANCE 
 //  WITH SERIAL true AND LOW 9600 BAUD RATE = JERKY PERFORMANCE
 //  WITH false OR HIGH 500000 BAUD RATE = SMOOTH PERFORMANCE
 
-float main_ang_velo = 0.05; // Angular Velocity Limit, DEGREES PER MILLISECOND (~20 is full speed)
+float main_ang_velo = 0.07; // Angular Velocity Limit, DEGREES PER MILLISECOND (~20 is full speed)
 // Servos Max Velocity is about 60 deg in 0.12 sec or 460 deg/sec, or 0.46 degrees per millisecond
 // This assumes no load and full (7 V) voltage.
 
@@ -29,15 +29,18 @@ float main_ang_velo = 0.05; // Angular Velocity Limit, DEGREES PER MILLISECOND (
 //#define lenBC 60.0     // Length of Input BC arm in mm
 //#define RADIAN 57.2957795  // number of degrees in one radian
 
-//   **        avoid current overloads           **
-
 // PATHS {{A_angle,B_angle,T_angle},{,,],...}
-// path1 is  an elipse (100mm , 200mm) drawn on the floor, from OpenSCAD
-//static float path1[][3] ={{34.7317, -37.3821, 0}, {34.775, -37.4545, 8.8903}, {35.3858, -38.4718, 17.1517}, {37.6735, -42.2564, 24.2746}, {42.4945, -50.0908, 29.8915}, {49.887, -61.6998, 33.6901}, {59.3819, -75.7947, 35.2545}, {70.3676, -90.7694, 33.8524}, {81.9162, -104.731, 28.2158}, {91.8898, -115.18, 16.7852}, {96.146, -119.173, 0}, {91.8898, -115.18, -16.7852}, {81.9162, -104.731, -28.2158}, {70.3676, -90.7694, -33.8524}, {59.3819, -75.7947, -35.2545}, {49.887, -61.6998, -33.6901}, {42.4945, -50.0908, -29.8915}, {37.6735, -42.2564, -24.2746}, {35.3858, -38.4718, -17.1517}, {34.775, -37.4545, -8.8903}}
-;
-static float path1[][3]={{34.7317, -37.3821, 0}, {34.7344, -37.3866, 4.48616}, {34.775, -37.4545, 8.8903}, {34.9463, -37.7399, 13.1351}, {35.3858, -38.4718, 17.1517}, {36.2492, -39.905, 20.8812}, {37.6735, -42.2564, 24.2746}, {39.7464, -45.6491, 27.2905}, {42.4945, -50.0908, 29.8915}, {45.8931, -55.4916, 32.0394}, {49.887, -61.6998, 33.6901}, {54.4076, -68.5327, 34.7871}, {59.3819, -75.7947, 35.2545}, {64.7324, -83.2803, 34.9891}, {70.3676, -90.7694, 33.8524}, {76.161, -98.0153, 31.6655}, {81.9162, -104.731, 28.2158}, {87.3178, -110.58, 23.2932}, {91.8898, -115.18, 16.7852}, {95.0219, -118.145, 8.83744}, {96.146, -119.173, 0}, {95.0219, -118.145, -8.83744}, {91.8898, -115.18, -16.7852}, {87.3178, -110.58, -23.2932}, {81.9162, -104.731, -28.2158}, {76.161, -98.0153, -31.6655}, {70.3676, -90.7694, -33.8524}, {64.7324, -83.2803, -34.9891}, {59.3819, -75.7947, -35.2545}, {54.4076, -68.5327, -34.7871}, {49.887, -61.6998, -33.6901}, {45.8931, -55.4916, -32.0394}, {42.4945, -50.0908, -29.8915}, {39.7464, -45.6491, -27.2905}, {37.6735, -42.2564, -24.2746}, {36.2492, -39.905, -20.8812}, {35.3858, -38.4718, -17.1517}, {34.9463, -37.7399, -13.1351}, {34.775, -37.4545, -8.8903}, {34.7344, -37.3866, -4.48616}}
+
+// path1 is  an elipse drawn parallel to horizon
+static float path1[][3]={{47.0282, -38.0823, 0}, {46.9841, -38.0134, 4.84945}, {46.8869, -37.8616, 9.60769}, {46.8385, -37.786, 14.1898}, {46.9953, -38.031, 18.5216}, {47.5436, -38.8852, 22.5422}, {48.6615, -40.6161, 26.2034}, {50.4793, -43.4001, 29.4666}, {53.0571, -47.2821, 32.2985}, {56.3897, -52.1843, 34.6659}, {60.4295, -57.9462, 36.5289}, {65.1092, -64.3659, 37.8335}, {70.355, -71.2263, 38.5035}, {76.0871, -78.3029, 38.4289}, {82.2084, -85.3612, 37.4534}, {88.5794, -92.1483, 35.3606}, {94.9763, -98.3838, 31.868}, {101.034, -103.756, 26.6533}, {106.198, -107.931, 19.4622}, {109.754, -110.596, 10.3547}, {111.035, -111.513, 0}, {109.754, -110.596, -10.3547}, {106.198, -107.931, -19.4622}, {101.034, -103.756, -26.6533}, {94.9763, -98.3838, -31.868}, {88.5794, -92.1483, -35.3606}, {82.2084, -85.3612, -37.4534}, {76.0871, -78.3029, -38.4289}, {70.355, -71.2263, -38.5035}, {65.1092, -64.3659, -37.8335}, {60.4295, -57.9462, -36.5289}, {56.3897, -52.1843, -34.6659}, {53.0571, -47.2821, -32.2985}, {50.4793, -43.4001, -29.4666}, {48.6615, -40.6161, -26.2034}, {47.5436, -38.8852, -22.5422}, {46.9953, -38.031, -18.5216}, {46.8385, -37.786, -14.1898}, {46.8869, -37.8616, -9.60769}, {46.9841, -38.0134, -4.84945}}
 ;
 static int path1_size = sizeof(path1)/(3*4);  // sizeof returns bytes in the array.  4 bytes per float. 
+
+// path2 is a line along the y axis
+static float path2[][3]={{51.1959, -44.4871, -56.3099}, {56.0625, -51.7088, -54.9406}, {60.4295, -57.9462, -53.4711}, {64.4477, -63.4755, -51.8924}, {68.2014, -68.4536, -50.1944}, {71.7411, -72.9782, -48.3665}, {75.0977, -77.1133, -46.3972}, {78.2893, -80.9022, -44.2748}, {81.3248, -84.3746, -41.9872}, {84.2057, -87.5507, -39.5226}, {86.9275, -90.4438, -36.8699}, {89.4807, -93.0621, -34.0193}, {91.8511, -95.4101, -30.9638}, {94.0208, -97.4893, -27.6995}, {95.9688, -99.2993, -24.2277}, {97.6722, -100.838, -20.556}, {99.1075, -102.103, -16.6992}, {100.252, -103.091, -12.6804}, {101.086, -103.799, -8.53077}, {101.592, -104.225, -4.28915}, {101.763, -104.367, 0}, {101.592, -104.225, 4.28915}, {101.086, -103.799, 8.53077}, {100.252, -103.091, 12.6804}, {99.1075, -102.103, 16.6992}, {97.6722, -100.838, 20.556}, {95.9688, -99.2993, 24.2277}, {94.0208, -97.4893, 27.6995}, {91.8511, -95.4101, 30.9638}, {89.4807, -93.0621, 34.0193}, {86.9275, -90.4438, 36.8699}, {84.2057, -87.5507, 39.5226}, {81.3248, -84.3746, 41.9872}, {78.2893, -80.9022, 44.2748}, {75.0977, -77.1133, 46.3972}, {71.7411, -72.9782, 48.3665}, {68.2014, -68.4536, 50.1944}, {64.4477, -63.4755, 51.8924}, {60.4295, -57.9462, 53.4711}, {56.0625, -51.7088, 54.9406}}
+;
+static int path2_size = sizeof(path2)/(3*4);  // sizeof returns bytes in the array.  4 bytes per float. 
+boolean forward = true; // used with path2 to reverse direction
 
 // ##### GLOBAL VARIABLES #####
 Servo servoA,servoB,servoC,servoD,servoT,servoS;  // servos for robot arm
@@ -85,7 +88,7 @@ struct joint jA,jB,jC,jD,jT,jS;
 
 unsigned long millisTime;
 
-boolean path_init, hold_init, input_arm_init;
+boolean path1_init,path2_init, hold_init, input_arm_init;
 
 // Path_Function global variables
 int path_index = 0;
@@ -152,7 +155,7 @@ void setup() {
    #endif
 
   // Set booleans so that all Functions get Initialized
-  path_init = true;
+  path1_init = true;
   hold_init = true;
   input_arm_init = true;
   
@@ -172,7 +175,7 @@ void setup() {
   jC.svo = set_servo(6, -90.0, 2400, 90.0, 1060); // high to low
   jD.svo = set_servo(10,  0.0,  500, 160.0, 2300);
   jT.svo = set_servo(11,-70.0,  400, 70.0, 2500);
-  jD.svo = set_servo(3,  0.0,  400, 180.0, 2500);
+  //jS.svo = set_servo(3,  0.0,  400, 180.0, 2500);
 
   // INITIALIZATION ANGLES FOR ARM
   set_joint(jA, 110.0);  
@@ -198,13 +201,13 @@ max (optional): the pulse width, in microseconds, corresponding to the maximum (
     servoB.attach(jB.svo.digital_pin);
    #endif
   #if C_ON
-    servoC.attach(jC.svo.digital_pin,jC.svo.low_ms,jC.svo.high_ms);
+    servoC.attach(jC.svo.digital_pin, 400 , 2500);
    #endif
   #if D_ON
     servoD.attach(jD.svo.digital_pin);
   #endif
   #if T_ON
-    servoT.attach(jT.svo.digital_pin,jT.svo.low_ms,jT.svo.high_ms);
+    servoT.attach(jT.svo.digital_pin, 400 , 2500);
   #endif
   #if S_ON
     servoT.attach(jS.svo.digital_pin);
@@ -232,6 +235,9 @@ void servo_map(joint & jt) {
   // PLAIN, No Rate Limiting
   // Map joint angle to the servo microsecond value
   jt.servo_ms = map(jt.desired_angle, jt.svo.low_ang, jt.svo.high_ang, jt.svo.low_ms, jt.svo.high_ms);
+
+  //jt.servo_ms = map(jt.previous_angle, jt.svo.low_ang, jt.svo.high_ang, jt.svo.low_ms, jt.svo.high_ms);
+
   /*
   if (toLow < toHigh) {
     jt.servo_ms = constrain(jt.servo_ms,toLow,toHigh);
@@ -302,7 +308,7 @@ void log_data(joint jt,char jt_letter,boolean minmax) {
 
 boolean update_done(joint jt1,joint jt2,joint jt3){
   float error1,error2,error3;
-  float is_zero = 0.1;  // USED TO DETERMINE ZERO, DEGREES
+  float is_zero = 0.05;  // USED TO DETERMINE ZERO, DEGREES
 
   error1 = abs(jt1.desired_angle-jt1.previous_angle);
   error2 = abs(jt2.desired_angle-jt2.previous_angle);
@@ -321,23 +327,24 @@ boolean update_done(joint jt1,joint jt2,joint jt3){
   }
 }
 
-void path_loop() {
+void path1_loop() {
   // reads the path array and moves the arm
-  if (path_init) {
+  if (path1_init) {
     // first time in this function, do initialize
     //  and set the other function to require initialize
-    path_init=false; 
+    path1_init=false; 
+    path2_init=true;
     hold_init=true;  
     input_arm_init=true;
     
      // initialize joints
-    jA.desired_angle = 120.0;
+    jA.desired_angle = 80.0;
     jB.desired_angle = 20.0;
     jC.desired_angle = -70.0;
     jD.desired_angle = 80.0;
     jT.desired_angle = 0.0;  
 
-    main_ang_velo = 0.02;
+    //main_ang_velo = 0.02;
     path_index = 0;
     new_segment = true;
 
@@ -355,19 +362,81 @@ void path_loop() {
         } else { // Done with array, restart the array
           path_index = 0;
           new_segment = true;
-          //path_init = true;        
         }
       } else {
         // LOOP UNTIL THE ANGLES ARE MET... UNTIL DONE ROUTINE        
       }
     }
 
+void path2_loop() {
+  // reads the path array and moves the arm
+  if (path2_init) {
+    // first time in this function, do initialize
+    //  and set the other function to require initialize
+    path2_init=false; 
+    path1_init=true;
+    hold_init=true;  
+    input_arm_init=true;
+    forward=true;  // direction of array traverse
+    
+     // initialize joints
+    jA.desired_angle = 80.0;
+    jB.desired_angle = 20.0;
+    jC.desired_angle = -70.0;
+    jD.desired_angle = 80.0;
+    jT.desired_angle = 0.0;  
+
+    main_ang_velo = 0.05;
+    path_index = 0;
+    new_segment = true;
+
+  } else if (update_done(jA,jB,jT)) {
+    main_ang_velo = 0.04;
+    if (forward) {
+        if (path_index < path1_size-1) { // step through the array
+          path_index +=1;
+          jA.pot_angle=path2[path_index][0];
+          jA.desired_angle=jA.pot_angle;
+          
+          jB.pot_angle=path2[path_index][1];
+          jB.desired_angle = constrain((jA.desired_angle + jB.pot_angle), jB.svo.low_ang, jB.svo.high_ang);  
+          
+          jT.pot_angle=path2[path_index][2];
+          jT.desired_angle=jT.pot_angle;
+        } else { // Done with array, restart the array
+          //path_index = 0;
+          new_segment = true;
+          forward=false;
+        }
+      }  else {  // reverse 
+        if (path_index > 0) { // step through the array
+          path_index -=1;
+          jA.pot_angle=path2[path_index][0];
+          jA.desired_angle=jA.pot_angle;
+          
+          jB.pot_angle=path2[path_index][1];
+          jB.desired_angle = constrain((jA.desired_angle + jB.pot_angle), jB.svo.low_ang, jB.svo.high_ang);  
+          
+          jT.pot_angle=path2[path_index][2];
+          jT.desired_angle=jT.pot_angle;
+        } else { // Done with array, restart the array
+          path_index = 0;
+          new_segment = true;
+          forward=true;
+        }
+      }
+   } else {
+        // LOOP UNTIL THE ANGLES ARE MET... UNTIL DONE ROUTINE        
+      }
+  }
+
 void hold_loop() {
   // F2 - HOLD
   if (hold_init) {
     // first time in this function, do initialize
     //  and set the other function to require initialize
-    path_init=true; 
+    path1_init=true; 
+    path2_init=true; 
     hold_init=false;  
     input_arm_init=true;
 
@@ -388,7 +457,8 @@ void input_arm_loop() {
   if (input_arm_init) {
     // first time in this function, do initialize
     //  and set the other function to require initialize
-    path_init=true; 
+    path1_init=true; 
+    path2_init=true; 
     hold_init=true;  
     input_arm_init=false;
 
@@ -439,12 +509,20 @@ void loop() {
 
   pot_map(jS);  // get Selector angle
 
-  if (jS.pot_value < 400) {
-    // Move the arm using the path array
+  if (jS.pot_value < 200) {
+    // Move the arm using the path2 array
+    #if SERIALOUT
+      Serial.print(",<200-PATH,");
+    #endif
+    //main_ang_velo = 0.01;
+    path2_loop();
+  } else if (jS.pot_value < 400) {
+    // Move the arm using the path1 array
     #if SERIALOUT
       Serial.print(",<400-PATH,");
     #endif
-    path_loop();
+    main_ang_velo = 0.04;
+    path1_loop();
   } else if (jS.pot_value < 600) {
     // Hold arm in initialize position
     #if SERIALOUT
@@ -462,16 +540,18 @@ void loop() {
   // The C potentiometer is for tuning (adding to) the C position.
   pot_map(jC);
   jC.pot_angle = -jC.pot_angle;  // REVERSED
-  jC.desired_angle = jC.pot_angle -jB.desired_angle - 30.0;
+  jC.desired_angle = jC.pot_angle -jB.desired_angle - 60.0;
 
   // Joint D is the Claw... sorry confusing, but C was taken
   pot_map(jD);
+  jD.desired_angle = jD.pot_angle;
 
   // GET SERVO Pulse width VALUES FROM ROBOT ARM OUTPUT ANGLE
   servo_map_with_limits(jA, main_ang_velo);
   servo_map_with_limits(jB, main_ang_velo);  
   servo_map_with_limits(jC, main_ang_velo); 
   servo_map(jD);  // full speed on servo claw
+//  servo_map_with_limits(jD, 1.0);  // full speed on servo claw
 
   // Turntable is geared down 2:1 
   servo_map_with_limits(jT, main_ang_velo); 
@@ -503,10 +583,10 @@ void loop() {
     //log_data(jA,'A',false);
     //log_data(jB,'B',false);
     log_data(jC,'C',false);
-    log_data(jD,'D',false);
-    //log_data(jT,'T',false);
+    //log_data(jD,'D',false);
+    log_data(jT,'T',false);
     //log_pot(jT);
-    log_data(jS,'S',false);
+    //log_data(jS,'S',false);
     Serial.println(", END");
   #endif
 }
