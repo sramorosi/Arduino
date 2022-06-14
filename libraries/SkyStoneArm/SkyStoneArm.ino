@@ -1,14 +1,13 @@
-/* ROBOT ARM CONTROL SOFTWARE
- *  By, SrAmo, May 2022
+/* ROBOT ARM CONTROL SOFTWARE FOR SKYSTONE ROBOT ARM
+ *  By, SrAmo, June 2022
  *  Lesson Learned: Short loop times equals smooth arm performance.
  *  Turning off serial output makes loops time much faster.
- *  Using int rather than float or double can make loop time faster.
  *  Turn off any unnesessary code.
  */
 #include <Servo.h>  // servo library
 // Servo Function library at: http://arduino.cc/en/Reference/Servo
 
-#define SERIALOUT false  // Controlls SERIAL output. Turn on when debugging. 
+#define SERIALOUT true  // Controlls SERIAL output. Turn on when debugging. 
 // SERIAL OUTPUT AFFECTS SMOOTHNESS OF SERVO PERFORMANCE 
 //  WITH SERIAL true AND LOW 9600 BAUD RATE = JERKY PERFORMANCE
 //  WITH false OR HIGH 500000 BAUD RATE = SMOOTH PERFORMANCE
@@ -18,11 +17,11 @@ float main_ang_velo = 0.07; // Angular Velocity Limit, DEGREES PER MILLISECOND (
 // This assumes no load and full (7 V) voltage.
 
 // Booleans to turn on Servos. [bad code can damage servos. This can help isolate]
-#define A_ON true
-#define B_ON true
-#define C_ON true
-#define D_ON true
-#define T_ON true
+#define A_ON false
+#define B_ON false
+#define C_ON false
+#define D_ON false
+#define T_ON false
 #define S_ON false
 
 //#define lenAB 50.0     // Length of Input AB arm in mm
@@ -32,14 +31,14 @@ float main_ang_velo = 0.07; // Angular Velocity Limit, DEGREES PER MILLISECOND (
 // PATHS {{A_angle,B_angle,T_angle},{,,],...}
 
 // path1 is  an elipse drawn parallel to horizon
-static float path1[][3]={{47.0282, -38.0823, 0}, {46.9841, -38.0134, 4.84945}, {46.8869, -37.8616, 9.60769}, {46.8385, -37.786, 14.1898}, {46.9953, -38.031, 18.5216}, {47.5436, -38.8852, 22.5422}, {48.6615, -40.6161, 26.2034}, {50.4793, -43.4001, 29.4666}, {53.0571, -47.2821, 32.2985}, {56.3897, -52.1843, 34.6659}, {60.4295, -57.9462, 36.5289}, {65.1092, -64.3659, 37.8335}, {70.355, -71.2263, 38.5035}, {76.0871, -78.3029, 38.4289}, {82.2084, -85.3612, 37.4534}, {88.5794, -92.1483, 35.3606}, {94.9763, -98.3838, 31.868}, {101.034, -103.756, 26.6533}, {106.198, -107.931, 19.4622}, {109.754, -110.596, 10.3547}, {111.035, -111.513, 0}, {109.754, -110.596, -10.3547}, {106.198, -107.931, -19.4622}, {101.034, -103.756, -26.6533}, {94.9763, -98.3838, -31.868}, {88.5794, -92.1483, -35.3606}, {82.2084, -85.3612, -37.4534}, {76.0871, -78.3029, -38.4289}, {70.355, -71.2263, -38.5035}, {65.1092, -64.3659, -37.8335}, {60.4295, -57.9462, -36.5289}, {56.3897, -52.1843, -34.6659}, {53.0571, -47.2821, -32.2985}, {50.4793, -43.4001, -29.4666}, {48.6615, -40.6161, -26.2034}, {47.5436, -38.8852, -22.5422}, {46.9953, -38.031, -18.5216}, {46.8385, -37.786, -14.1898}, {46.8869, -37.8616, -9.60769}, {46.9841, -38.0134, -4.84945}}
+//static float path1[][3]={{47.0282, -38.0823, 0}, {46.9841, -38.0134, 4.84945}, {46.8869, -37.8616, 9.60769}, {46.8385, -37.786, 14.1898}, {46.9953, -38.031, 18.5216}, {47.5436, -38.8852, 22.5422}, {48.6615, -40.6161, 26.2034}, {50.4793, -43.4001, 29.4666}, {53.0571, -47.2821, 32.2985}, {56.3897, -52.1843, 34.6659}, {60.4295, -57.9462, 36.5289}, {65.1092, -64.3659, 37.8335}, {70.355, -71.2263, 38.5035}, {76.0871, -78.3029, 38.4289}, {82.2084, -85.3612, 37.4534}, {88.5794, -92.1483, 35.3606}, {94.9763, -98.3838, 31.868}, {101.034, -103.756, 26.6533}, {106.198, -107.931, 19.4622}, {109.754, -110.596, 10.3547}, {111.035, -111.513, 0}, {109.754, -110.596, -10.3547}, {106.198, -107.931, -19.4622}, {101.034, -103.756, -26.6533}, {94.9763, -98.3838, -31.868}, {88.5794, -92.1483, -35.3606}, {82.2084, -85.3612, -37.4534}, {76.0871, -78.3029, -38.4289}, {70.355, -71.2263, -38.5035}, {65.1092, -64.3659, -37.8335}, {60.4295, -57.9462, -36.5289}, {56.3897, -52.1843, -34.6659}, {53.0571, -47.2821, -32.2985}, {50.4793, -43.4001, -29.4666}, {48.6615, -40.6161, -26.2034}, {47.5436, -38.8852, -22.5422}, {46.9953, -38.031, -18.5216}, {46.8385, -37.786, -14.1898}, {46.8869, -37.8616, -9.60769}, {46.9841, -38.0134, -4.84945}}
 ;
-static int path1_size = sizeof(path1)/(3*4);  // sizeof returns bytes in the array.  4 bytes per float. 
+//static int path1_size = sizeof(path1)/(3*4);  // sizeof returns bytes in the array.  4 bytes per float. 
 
 // path2 is a line along the y axis
-static float path2[][3]={{51.1959, -44.4871, -56.3099}, {56.0625, -51.7088, -54.9406}, {60.4295, -57.9462, -53.4711}, {64.4477, -63.4755, -51.8924}, {68.2014, -68.4536, -50.1944}, {71.7411, -72.9782, -48.3665}, {75.0977, -77.1133, -46.3972}, {78.2893, -80.9022, -44.2748}, {81.3248, -84.3746, -41.9872}, {84.2057, -87.5507, -39.5226}, {86.9275, -90.4438, -36.8699}, {89.4807, -93.0621, -34.0193}, {91.8511, -95.4101, -30.9638}, {94.0208, -97.4893, -27.6995}, {95.9688, -99.2993, -24.2277}, {97.6722, -100.838, -20.556}, {99.1075, -102.103, -16.6992}, {100.252, -103.091, -12.6804}, {101.086, -103.799, -8.53077}, {101.592, -104.225, -4.28915}, {101.763, -104.367, 0}, {101.592, -104.225, 4.28915}, {101.086, -103.799, 8.53077}, {100.252, -103.091, 12.6804}, {99.1075, -102.103, 16.6992}, {97.6722, -100.838, 20.556}, {95.9688, -99.2993, 24.2277}, {94.0208, -97.4893, 27.6995}, {91.8511, -95.4101, 30.9638}, {89.4807, -93.0621, 34.0193}, {86.9275, -90.4438, 36.8699}, {84.2057, -87.5507, 39.5226}, {81.3248, -84.3746, 41.9872}, {78.2893, -80.9022, 44.2748}, {75.0977, -77.1133, 46.3972}, {71.7411, -72.9782, 48.3665}, {68.2014, -68.4536, 50.1944}, {64.4477, -63.4755, 51.8924}, {60.4295, -57.9462, 53.4711}, {56.0625, -51.7088, 54.9406}}
+//static float path2[][3]={{51.1959, -44.4871, -56.3099}, {56.0625, -51.7088, -54.9406}, {60.4295, -57.9462, -53.4711}, {64.4477, -63.4755, -51.8924}, {68.2014, -68.4536, -50.1944}, {71.7411, -72.9782, -48.3665}, {75.0977, -77.1133, -46.3972}, {78.2893, -80.9022, -44.2748}, {81.3248, -84.3746, -41.9872}, {84.2057, -87.5507, -39.5226}, {86.9275, -90.4438, -36.8699}, {89.4807, -93.0621, -34.0193}, {91.8511, -95.4101, -30.9638}, {94.0208, -97.4893, -27.6995}, {95.9688, -99.2993, -24.2277}, {97.6722, -100.838, -20.556}, {99.1075, -102.103, -16.6992}, {100.252, -103.091, -12.6804}, {101.086, -103.799, -8.53077}, {101.592, -104.225, -4.28915}, {101.763, -104.367, 0}, {101.592, -104.225, 4.28915}, {101.086, -103.799, 8.53077}, {100.252, -103.091, 12.6804}, {99.1075, -102.103, 16.6992}, {97.6722, -100.838, 20.556}, {95.9688, -99.2993, 24.2277}, {94.0208, -97.4893, 27.6995}, {91.8511, -95.4101, 30.9638}, {89.4807, -93.0621, 34.0193}, {86.9275, -90.4438, 36.8699}, {84.2057, -87.5507, 39.5226}, {81.3248, -84.3746, 41.9872}, {78.2893, -80.9022, 44.2748}, {75.0977, -77.1133, 46.3972}, {71.7411, -72.9782, 48.3665}, {68.2014, -68.4536, 50.1944}, {64.4477, -63.4755, 51.8924}, {60.4295, -57.9462, 53.4711}, {56.0625, -51.7088, 54.9406}}
 ;
-static int path2_size = sizeof(path2)/(3*4);  // sizeof returns bytes in the array.  4 bytes per float. 
+//static int path2_size = sizeof(path2)/(3*4);  // sizeof returns bytes in the array.  4 bytes per float. 
 boolean forward = true; // used with path2 to reverse direction
 
 // ##### GLOBAL VARIABLES #####
@@ -149,9 +148,9 @@ void setup() {
     while (!Serial) {
       ; // wait for serial port to connect. Needed for native USB port only
     } 
-    Serial.print("path1_size,");
-    Serial.print(path1_size);
-    Serial.println(",END");
+    //Serial.print("path1_size,");
+    //Serial.print(path1_size);
+    //Serial.println(",END");
    #endif
 
   // Set booleans so that all Functions get Initialized
@@ -161,12 +160,12 @@ void setup() {
   
   // TUNE POT LOW AND HIGH VALUES
   // set_pot(pin,lowmv,lowang,highmv,highang)
-  jA.pot = set_pot(4 ,134,  0, 485, 90);
-  jB.pot = set_pot(1 ,131,-90, 500,  0);
-  jC.pot = set_pot(5 , 139,-90, 910, 90);
-  jD.pot = set_pot(2 ,370, 0, 700, 160);
-  jT.pot = set_pot(0 ,160, -70, 510, 0);
-  jS.pot = set_pot(3 , 0, 0, 1023, 280);
+  jA.pot = set_pot(5 ,134,  0, 895, 178); // orange stripe
+  jB.pot = set_pot(4 ,500,-90, 908,  0); // orange
+  jC.pot = set_pot(0 , 116,-90, 903, 90); // green
+  jD.pot = set_pot(3 ,250, 60, 747, -60); // green stripe
+  jT.pot = set_pot(2 ,160, -70, 510, 0); // blue
+  jS.pot = set_pot(1 , 0, 0, 1023, 280); // blue stripe
 
   // TUNE SERVO LOW AND HIGH VALUES
   // set_servo(pin,lowang,lowms,highang,highms)
@@ -294,8 +293,8 @@ void log_data(joint jt,char jt_letter,boolean minmax) {
     Serial.print(jt.pot_angle,1);
 //    Serial.print(", PrevAngle,");
 //    Serial.print(jt.previous_angle,1);
-    Serial.print(", DESAngle,");
-    Serial.print(jt.desired_angle,1);
+//    Serial.print(", DESAngle,");
+//    Serial.print(jt.desired_angle,1);
 //    Serial.print(", servo_ms,");
 //    Serial.print(jt.servo_ms);
 /*    if (minmax) {
@@ -327,7 +326,7 @@ boolean update_done(joint jt1,joint jt2,joint jt3){
     return false;
   }
 }
-
+/*
 void path1_loop() {
   // reads the path array and moves the arm
   if (path1_init) {
@@ -430,7 +429,7 @@ void path2_loop() {
         // LOOP UNTIL THE ANGLES ARE MET... UNTIL DONE ROUTINE        
       }
   }
-
+*/
 void hold_loop() {
   // F2 - HOLD
   if (hold_init) {
@@ -491,7 +490,8 @@ void loop() {
   jC.pot_value = analogRead(jC.pot.analog_pin);  // read joint C (tuner pot)
   jD.pot_value = analogRead(jD.pot.analog_pin);  // read the claw
   jT.pot_value = analogRead(jT.pot.analog_pin);  // read the turntable
-  jS.pot_value = analogRead(jS.pot.analog_pin);  // read the selector
+  //jS.pot_value = analogRead(jS.pot.analog_pin);  // read the selector
+  jS.pot_value = 800;  // read the selector
 
   #if SERIALOUT
     // output for debugging
@@ -516,14 +516,14 @@ void loop() {
       Serial.print(",<200-PATH,");
     #endif
     //main_ang_velo = 0.01;
-    path2_loop();
+    //path2_loop();
   } else if (jS.pot_value < 400) {
     // Move the arm using the path1 array
     #if SERIALOUT
       Serial.print(",<400-PATH,");
     #endif
     main_ang_velo = 0.04;
-    path1_loop();
+    //path1_loop();
   } else if (jS.pot_value < 600) {
     // Hold arm in initialize position
     #if SERIALOUT
@@ -540,8 +540,8 @@ void loop() {
   // want Joint C to have a fix angle relative to ground, thus driven by joint B.
   // The C potentiometer is for tuning (adding to) the C position.
   pot_map(jC);
-  jC.pot_angle = -jC.pot_angle;  // REVERSED
-  jC.desired_angle = jC.pot_angle -jB.desired_angle - 60.0;
+  //jC.pot_angle = -jC.pot_angle;  // REVERSED
+  //jC.desired_angle = jC.pot_angle -jB.desired_angle - 60.0;
 
   // Joint D is the Claw... sorry confusing, but C was taken
   pot_map(jD);
@@ -583,10 +583,10 @@ void loop() {
   #if SERIALOUT
     //log_data(jA,'A',false);
     //log_data(jB,'B',false);
-    log_data(jC,'C',false);
+    //log_data(jC,'C',false);
     //log_data(jD,'D',false);
     log_data(jT,'T',false);
-    //log_pot(jT);
+    log_pot(jT);
     //log_data(jS,'S',false);
     Serial.println(", END");
   #endif
