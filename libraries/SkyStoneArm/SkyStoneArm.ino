@@ -141,7 +141,7 @@ void setup() {
   jB.pot = set_pot(1 ,500,-90, 908,  0); 
   jC.pot = set_pot(3 , 116,-90, 903, 90); 
   jD.pot = set_pot(2 ,250, 60, 747, -60); 
-  //jT.pot = set_pot(4 ,160, -70, 510, 0); 
+  jT.pot = set_pot(4 ,160, -70, 510, 0); 
   //jS.pot = set_pot(5 , 0, 0, 1023, 280); 
 
   // TUNE SERVO LOW AND HIGH VALUES
@@ -257,8 +257,8 @@ void input_arm_loop() {
   } 
  
   // Turntable
-  //pot_map(jT);
-  //jT.desired_angle = -jT.pot_angle;  // reverse the angle
+  pot_map(jT);
+  jT.desired_angle = jT.pot_angle-20.0;  // adjust zero
   
   // calculate c arm positions from angles
   //cx = lenAB*cos(outputA*1000 / 57296) + lenBC*cos(outputB*1000 / 57296);
@@ -273,7 +273,7 @@ void loop() {
   jB.pot_value = analogRead(jB.pot.analog_pin);  // read joint B
   jC.pot_value = analogRead(jC.pot.analog_pin);  // read joint Claw
   jD.pot_value = analogRead(jD.pot.analog_pin);  // read D wrist
-  //jT.pot_value = analogRead(jT.pot.analog_pin);  // read the turntable
+  jT.pot_value = analogRead(jT.pot.analog_pin);  // read the turntable
   //jS.pot_value = analogRead(jS.pot.analog_pin);  // read the selector
   //jS.pot_value = 800;  // read the selector
 
@@ -299,7 +299,7 @@ void loop() {
   servo_map(jD);  // full speed on servo claw
   
   // Turntable 
-  servo_map_with_limits(jT, main_ang_velo); 
+  servo_map_with_limits(jT, main_ang_velo/2.0); 
 
   // No S servo attached
   //servo_map_with_limits(jS,main_ang_velo); 
@@ -322,10 +322,10 @@ void loop() {
 
   #if SERIALOUT
     //log_data(jA,'A',false);
-    log_data(jB,'B',false);
+    //log_data(jB,'B',false);
     //log_data(jC,'C',false);
     //log_data(jD,'D',false);
-    //log_data(jT,'T',false);
+    log_data(jT,'T',false);
     //log_pot(jT);
     //log_data(jS,'S',false);
     Serial.println(", END");
