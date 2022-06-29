@@ -5,8 +5,15 @@
  *  Using int rather than float or double can make loop time faster.
  *  Turn off any unnesessary code.
  */
-#include <Servo.h>  // servo library
+//#include <Servo.h>  // servo library
 // Servo Function library at: http://arduino.cc/en/Reference/Servo
+
+#include <Wire.h>
+#include <Adafruit_PWMServoDriver.h>
+
+// called this way, it uses the default address 0x40
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+#define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
 
 #define SERIALOUT false  // Controlls SERIAL output. Turn on when debugging. 
 // SERIAL OUTPUT AFFECTS SMOOTHNESS OF SERVO PERFORMANCE 
@@ -43,7 +50,7 @@ static int path2_size = sizeof(path2)/(3*4);  // sizeof returns bytes in the arr
 boolean forward = true; // used with path2 to reverse direction
 
 // ##### GLOBAL VARIABLES #####
-Servo servoA,servoB,servoC,servoD,servoT,servoS;  // servos for robot arm
+//Servo servoA,servoB,servoC,servoD,servoT,servoS;  // servos for robot arm
 
 struct potentiometer {
   int analog_pin; // Arduino analog pin number (0 - 5)
@@ -61,7 +68,8 @@ struct arm_servo {
   // 270 deg servo, gets 290 deg motion with 400 to 2500 microsecond range
   // 180 deg servo, gets 160 deg motion with 500 to 2800 microsecond range
   // 180 deg SAVOX, gets 170 deg motion with 500 to 2800 microsecond range
-  int digital_pin; // Arduino digital pin number
+  //int digital_pin; // Arduino digital pin number
+  uint8_t digital_pin; // Adafruit digital pin number
   int low_ms; // low microsecond point, from about 500 to 2400
   float low_ang; // corresponding angle at low microsecond
   int high_ms; // high microsecond point, from about 500 to 2400
@@ -194,6 +202,7 @@ min (optional): the pulse width, in microseconds, corresponding to the minimum (
 max (optional): the pulse width, in microseconds, corresponding to the maximum (180 degree) angle on the servo (defaults to 2400)
  */
 
+/*
   #if A_ON
     servoA.attach(jA.svo.digital_pin);
   #endif
@@ -212,6 +221,30 @@ max (optional): the pulse width, in microseconds, corresponding to the maximum (
   #if S_ON
     servoT.attach(jS.svo.digital_pin);
   #endif
+*/
+
+  pwm.begin();
+  /*  Adafruit sevo library
+   * In theory the internal oscillator (clock) is 25MHz but it really isn't
+   * that precise. You can 'calibrate' this by tweaking this number until
+   * you get the PWM update frequency you're expecting!
+   * The int.osc. for the PCA9685 chip is a range between about 23-27MHz and
+   * is used for calculating things like writeMicroseconds()
+   * Analog servos run at ~50 Hz updates, It is importaint to use an
+   * oscilloscope in setting the int.osc frequency for the I2C PCA9685 chip.
+   * 1) Attach the oscilloscope to one of the PWM signal pins and ground on
+   *    the I2C PCA9685 chip you are setting the value for.
+   * 2) Adjust setOscillatorFrequency() until the PWM update frequency is the
+   *    expected value (50Hz for most ESCs)
+   * Setting the value here is specific to each individual I2C PCA9685 chip and
+   * affects the calculations for the PWM update frequency. 
+   * Failure to correctly set the int.osc value will cause unexpected PWM results
+   */
+  pwm.setOscillatorFrequency(27000000);
+  pwm.setPWMFreq(SERVO_FREQ);  // Analog servos run at ~50 Hz updates
+
+  delay(10);
+
 }
 
 /*
@@ -561,19 +594,24 @@ void loop() {
   //servo_map_with_limits(jS,main_ang_velo); 
 
   #if A_ON
-    servoA.writeMicroseconds(jA.servo_ms);
+    pwm.writeMicroseconds(jA.svo.digital_pin, jA.servo_ms); // Adafruit servo library
+    //servoA.writeMicroseconds(jA.servo_ms);
   #endif
   #if B_ON
-    servoB.writeMicroseconds(jB.servo_ms);
+    pwm.writeMicroseconds(jB.svo.digital_pin, jB.servo_ms); // Adafruit servo library
+    //servoB.writeMicroseconds(jB.servo_ms);
   #endif
   #if C_ON
-    servoC.writeMicroseconds(jC.servo_ms);
+    pwm.writeMicroseconds(jC.svo.digital_pin, jC.servo_ms); // Adafruit servo library
+    //servoC.writeMicroseconds(jC.servo_ms);
   #endif
   #if D_ON
-    servoD.writeMicroseconds(jD.servo_ms);
+    pwm.writeMicroseconds(jD.svo.digital_pin, jD.servo_ms); // Adafruit servo library
+//    servoD.writeMicroseconds(jD.servo_ms);
   #endif
   #if T_ON
-    servoT.writeMicroseconds(jT.servo_ms);
+    pwm.writeMicroseconds(jT.svo.digital_pin, jT.servo_ms); // Adafruit servo library
+//    servoT.writeMicroseconds(jT.servo_ms);
   #endif
   /*
   #if S_ON
