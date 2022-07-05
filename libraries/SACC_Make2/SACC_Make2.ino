@@ -169,20 +169,20 @@ void setup() {
   // TUNE POT LOW AND HIGH VALUES
   // set_pot(pin,lowmv,lowang,highmv,highang)
   jA.pot = set_pot(4 ,134,  0, 485, 90);
-  jB.pot = set_pot(1 ,131,-90, 500,  0);
-  jC.pot = set_pot(5 , 139,-90, 910, 90);
+  jB.pot = set_pot(5 ,131,-90, 500,  0);
+  jC.pot = set_pot(1 , 139,-90, 910, 90);
   jD.pot = set_pot(2 ,370, 0, 700, 160);
   jT.pot = set_pot(0 ,160, -70, 510, 0);
   jS.pot = set_pot(3 , 0, 0, 1023, 280);
 
   // TUNE SERVO LOW AND HIGH VALUES
   // set_servo(pin,lowang,lowms,highang,highms)
-  jA.svo = set_servo(9,  0.0, 960, 170.0, 2200);
-  jB.svo = set_servo(5, -50.0, 2300, 90.0, 1000); // high to low
-  jC.svo = set_servo(6, -90.0, 2400, 90.0, 1060); // high to low
-  jD.svo = set_servo(10,  0.0,  500, 160.0, 2300);
-  jT.svo = set_servo(11,-70.0,  400, 70.0, 2500);
-  //jS.svo = set_servo(3,  0.0,  400, 180.0, 2500);
+  jA.svo = set_servo(0,  0.0, 960, 170.0, 2200);
+  jB.svo = set_servo(1, -50.0, 2300, 90.0, 1000); // high to low
+  jC.svo = set_servo(2, -90.0, 2400, 90.0, 1060); // high to low
+  jD.svo = set_servo(3,  0.0,  500, 160.0, 2300);
+  jT.svo = set_servo(4,-70.0,  400, 70.0, 2500);
+  //jS.svo = set_servo(5,  0.0,  400, 180.0, 2500);
 
   // INITIALIZATION ANGLES FOR ARM
   set_joint(jA, 110.0);  
@@ -320,14 +320,14 @@ void log_data(joint jt,char jt_letter,boolean minmax) {
   #if SERIALOUT
     Serial.print(",");
     Serial.print(jt_letter);
-    Serial.print(", pot_value,");
+    Serial.print(", p_val,");
     Serial.print(jt.pot_value);
-    Serial.print(", POTangle,");
+    Serial.print(", Pang,");
     Serial.print(jt.pot_angle,1);
 //    Serial.print(", PrevAngle,");
 //    Serial.print(jt.previous_angle,1);
-    Serial.print(", DESAngle,");
-    Serial.print(jt.desired_angle,1);
+    //Serial.print(", DESAngle,");
+    //Serial.print(jt.desired_angle,1);
 //    Serial.print(", servo_ms,");
 //    Serial.print(jt.servo_ms);
 /*    if (minmax) {
@@ -579,13 +579,13 @@ void loop() {
   #endif
 */
   #if SERIALOUT
-    //log_data(jA,'A',false);
-    //log_data(jB,'B',false);
+    log_data(jA,'A',false);
+    log_data(jB,'B',false);
     log_data(jC,'C',false);
-    //log_data(jD,'D',false);
+    log_data(jD,'D',false);
     log_data(jT,'T',false);
     //log_pot(jT);
-    //log_data(jS,'S',false);
+    log_data(jS,'S',false);
     Serial.println(", END");
   #endif
 }
