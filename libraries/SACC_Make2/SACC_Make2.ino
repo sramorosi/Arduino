@@ -10,12 +10,13 @@
 
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
+#include "MotionControl.h"
 
 // called this way, it uses the default address 0x40
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 #define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
 
-#define SERIALOUT false  // Controlls SERIAL output. Turn on when debugging. 
+#define SERIALOUT true  // Controlls SERIAL output. Turn on when debugging. 
 // SERIAL OUTPUT AFFECTS SMOOTHNESS OF SERVO PERFORMANCE 
 //  WITH SERIAL true AND LOW 9600 BAUD RATE = JERKY PERFORMANCE
 //  WITH false OR HIGH 500000 BAUD RATE = SMOOTH PERFORMANCE
@@ -36,10 +37,11 @@ float main_ang_velo = 0.07; // Angular Velocity Limit, DEGREES PER MILLISECOND (
 //#define lenBC 60.0     // Length of Input BC arm in mm
 //#define RADIAN 57.2957795  // number of degrees in one radian
 
+/*
 // PATHS {{A_angle,B_angle,T_angle},{,,],...}
 
 // path1 is  an elipse drawn parallel to horizon
-static float path1[][3]={{47.0282, -38.0823, 0}, {46.9841, -38.0134, 4.84945}, {46.8869, -37.8616, 9.60769}, {46.8385, -37.786, 14.1898}, {46.9953, -38.031, 18.5216}, {47.5436, -38.8852, 22.5422}, {48.6615, -40.6161, 26.2034}, {50.4793, -43.4001, 29.4666}, {53.0571, -47.2821, 32.2985}, {56.3897, -52.1843, 34.6659}, {60.4295, -57.9462, 36.5289}, {65.1092, -64.3659, 37.8335}, {70.355, -71.2263, 38.5035}, {76.0871, -78.3029, 38.4289}, {82.2084, -85.3612, 37.4534}, {88.5794, -92.1483, 35.3606}, {94.9763, -98.3838, 31.868}, {101.034, -103.756, 26.6533}, {106.198, -107.931, 19.4622}, {109.754, -110.596, 10.3547}, {111.035, -111.513, 0}, {109.754, -110.596, -10.3547}, {106.198, -107.931, -19.4622}, {101.034, -103.756, -26.6533}, {94.9763, -98.3838, -31.868}, {88.5794, -92.1483, -35.3606}, {82.2084, -85.3612, -37.4534}, {76.0871, -78.3029, -38.4289}, {70.355, -71.2263, -38.5035}, {65.1092, -64.3659, -37.8335}, {60.4295, -57.9462, -36.5289}, {56.3897, -52.1843, -34.6659}, {53.0571, -47.2821, -32.2985}, {50.4793, -43.4001, -29.4666}, {48.6615, -40.6161, -26.2034}, {47.5436, -38.8852, -22.5422}, {46.9953, -38.031, -18.5216}, {46.8385, -37.786, -14.1898}, {46.8869, -37.8616, -9.60769}, {46.9841, -38.0134, -4.84945}}
+static float path1[][3]={{47.0282f, -38.0823, 0}, {46.9841, -38.0134, 4.84945}, {46.8869, -37.8616, 9.60769}, {46.8385, -37.786, 14.1898}, {46.9953, -38.031, 18.5216}, {47.5436, -38.8852, 22.5422}, {48.6615, -40.6161, 26.2034}, {50.4793, -43.4001, 29.4666}, {53.0571, -47.2821, 32.2985}, {56.3897, -52.1843, 34.6659}, {60.4295, -57.9462, 36.5289}, {65.1092, -64.3659, 37.8335}, {70.355, -71.2263, 38.5035}, {76.0871, -78.3029, 38.4289}, {82.2084, -85.3612, 37.4534}, {88.5794, -92.1483, 35.3606}, {94.9763, -98.3838, 31.868}, {101.034, -103.756, 26.6533}, {106.198, -107.931, 19.4622}, {109.754, -110.596, 10.3547}, {111.035, -111.513, 0}, {109.754, -110.596, -10.3547}, {106.198, -107.931, -19.4622}, {101.034, -103.756, -26.6533}, {94.9763, -98.3838, -31.868}, {88.5794, -92.1483, -35.3606}, {82.2084, -85.3612, -37.4534}, {76.0871, -78.3029, -38.4289}, {70.355, -71.2263, -38.5035}, {65.1092, -64.3659, -37.8335}, {60.4295, -57.9462, -36.5289}, {56.3897, -52.1843, -34.6659}, {53.0571, -47.2821, -32.2985}, {50.4793, -43.4001, -29.4666}, {48.6615, -40.6161, -26.2034}, {47.5436, -38.8852, -22.5422}, {46.9953, -38.031, -18.5216}, {46.8385, -37.786, -14.1898}, {46.8869, -37.8616, -9.60769}, {46.9841, -38.0134, -4.84945}}
 ;
 static int path1_size = sizeof(path1)/(3*4);  // sizeof returns bytes in the array.  4 bytes per float. 
 
@@ -48,6 +50,14 @@ static float path2[][3]={{51.1959, -44.4871, -56.3099}, {56.0625, -51.7088, -54.
 ;
 static int path2_size = sizeof(path2)/(3*4);  // sizeof returns bytes in the array.  4 bytes per float. 
 boolean forward = true; // used with path2 to reverse direction
+
+
+// Path_Function global variables
+int path_index = 0;
+boolean new_segment = true;
+
+*/
+boolean path1_init,path2_init, hold_init, input_arm_init;
 
 // ##### GLOBAL VARIABLES #####
 //Servo servoA,servoB,servoC,servoD,servoT,servoS;  // servos for robot arm
@@ -95,14 +105,6 @@ struct joint {
 struct joint jA,jB,jC,jD,jT,jS;
 
 unsigned long millisTime;
-
-boolean path1_init,path2_init, hold_init, input_arm_init;
-
-// Path_Function global variables
-int path_index = 0;
-boolean new_segment = true;
-
-//float cx,cy; // to be used for range limits
 
 potentiometer set_pot(int pin, int lowmv, int lowang, int highmv, int highang) {
   // set_pot(pin,lowmv,lowang,highmv,highang)
@@ -157,9 +159,6 @@ void setup() {
     while (!Serial) {
       ; // wait for serial port to connect. Needed for native USB port only
     } 
-    Serial.print("path1_size,");
-    Serial.print(path1_size);
-    Serial.println(",END");
    #endif
 
   // Set booleans so that all Functions get Initialized
@@ -340,6 +339,7 @@ void log_data(joint jt,char jt_letter,boolean minmax) {
   #endif
 }
 
+/*
 boolean update_done(joint jt1,joint jt2,joint jt3){
   float error1,error2,error3;
   float is_zero = 0.05;  // USED TO DETERMINE ZERO, DEGREES
@@ -360,8 +360,11 @@ boolean update_done(joint jt1,joint jt2,joint jt3){
     return false;
   }
 }
-
+*/
 void path1_loop() {
+  static unsigned long millisTime;
+  static float *angles;
+  static float time_ang;
   // reads the path array and moves the arm
   if (path1_init) {
     // first time in this function, do initialize
@@ -379,25 +382,20 @@ void path1_loop() {
     jT.desired_angle = 0.0;  
 
     //main_ang_velo = 0.02;
-    path_index = 0;
-    new_segment = true;
 
-  } else if (update_done(jA,jB,jT)) {
-        if (path_index < path1_size-1) { // step through the array
-          path_index +=1;
-          jA.pot_angle=path1[path_index][0];
-          jA.desired_angle=jA.pot_angle;
-          
-          jB.pot_angle=path1[path_index][1];
-          jB.desired_angle = constrain((jA.desired_angle + jB.pot_angle), jB.svo.low_ang, jB.svo.high_ang);  
-          
-          jT.pot_angle=path1[path_index][2];
-          jT.desired_angle=jT.pot_angle;
-        } else { // Done with array, restart the array
-          path_index = 0;
-          new_segment = true;
-        }
-      } else {
+  } else {
+
+      millisTime = millis();
+      time_ang = millisTime*0.0003;
+    
+      ptC[0] = XC + R * cos(time_ang);
+      ptC[1] = R * sin(time_ang);
+    
+      angles = inverse_arm_kinematics(ptC,LEN_AB,LEN_BC);
+      jA.desired_angle = angles[0];
+      jB.desired_angle = angles[1];
+      jT.desired_angle = angles[2];  
+
         // LOOP UNTIL THE ANGLES ARE MET... UNTIL DONE ROUTINE        
       }
     }
@@ -411,7 +409,6 @@ void path2_loop() {
     path1_init=true;
     hold_init=true;  
     input_arm_init=true;
-    forward=true;  // direction of array traverse
     
      // initialize joints
     jA.desired_angle = 80.0;
@@ -421,45 +418,8 @@ void path2_loop() {
     jT.desired_angle = 0.0;  
 
     main_ang_velo = 0.05;
-    path_index = 0;
-    new_segment = true;
-
-  } else if (update_done(jA,jB,jT)) {
-    main_ang_velo = 0.04;
-    if (forward) {
-        if (path_index < path1_size-1) { // step through the array
-          path_index +=1;
-          jA.pot_angle=path2[path_index][0];
-          jA.desired_angle=jA.pot_angle;
-          
-          jB.pot_angle=path2[path_index][1];
-          jB.desired_angle = constrain((jA.desired_angle + jB.pot_angle), jB.svo.low_ang, jB.svo.high_ang);  
-          
-          jT.pot_angle=path2[path_index][2];
-          jT.desired_angle=jT.pot_angle;
-        } else { // Done with array, restart the array
-          //path_index = 0;
-          new_segment = true;
-          forward=false;
-        }
-      }  else {  // reverse 
-        if (path_index > 0) { // step through the array
-          path_index -=1;
-          jA.pot_angle=path2[path_index][0];
-          jA.desired_angle=jA.pot_angle;
-          
-          jB.pot_angle=path2[path_index][1];
-          jB.desired_angle = constrain((jA.desired_angle + jB.pot_angle), jB.svo.low_ang, jB.svo.high_ang);  
-          
-          jT.pot_angle=path2[path_index][2];
-          jT.desired_angle=jT.pot_angle;
-        } else { // Done with array, restart the array
-          path_index = 0;
-          new_segment = true;
-          forward=true;
-        }
-      }
-   } else {
+ 
+  } else  {
         // LOOP UNTIL THE ANGLES ARE MET... UNTIL DONE ROUTINE        
       }
   }
