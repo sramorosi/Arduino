@@ -16,7 +16,7 @@
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 #define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
 
-#define SERIALOUT true  // Controlls SERIAL output. Turn on when debugging. 
+#define SERIALOUT false  // Controlls SERIAL output. Turn on when debugging. 
 // SERIAL OUTPUT AFFECTS SMOOTHNESS OF SERVO PERFORMANCE 
 //  WITH SERIAL true AND LOW 9600 BAUD RATE = JERKY PERFORMANCE
 //  WITH false OR HIGH 500000 BAUD RATE = SMOOTH PERFORMANCE
@@ -33,30 +33,6 @@ float main_ang_velo = 0.07; // Angular Velocity Limit, DEGREES PER MILLISECOND (
 #define T_ON true
 #define S_ON false
 
-//#define lenAB 50.0     // Length of Input AB arm in mm
-//#define lenBC 60.0     // Length of Input BC arm in mm
-//#define RADIAN 57.2957795  // number of degrees in one radian
-
-/*
-// PATHS {{A_angle,B_angle,T_angle},{,,],...}
-
-// path1 is  an elipse drawn parallel to horizon
-static float path1[][3]={{47.0282f, -38.0823, 0}, {46.9841, -38.0134, 4.84945}, {46.8869, -37.8616, 9.60769}, {46.8385, -37.786, 14.1898}, {46.9953, -38.031, 18.5216}, {47.5436, -38.8852, 22.5422}, {48.6615, -40.6161, 26.2034}, {50.4793, -43.4001, 29.4666}, {53.0571, -47.2821, 32.2985}, {56.3897, -52.1843, 34.6659}, {60.4295, -57.9462, 36.5289}, {65.1092, -64.3659, 37.8335}, {70.355, -71.2263, 38.5035}, {76.0871, -78.3029, 38.4289}, {82.2084, -85.3612, 37.4534}, {88.5794, -92.1483, 35.3606}, {94.9763, -98.3838, 31.868}, {101.034, -103.756, 26.6533}, {106.198, -107.931, 19.4622}, {109.754, -110.596, 10.3547}, {111.035, -111.513, 0}, {109.754, -110.596, -10.3547}, {106.198, -107.931, -19.4622}, {101.034, -103.756, -26.6533}, {94.9763, -98.3838, -31.868}, {88.5794, -92.1483, -35.3606}, {82.2084, -85.3612, -37.4534}, {76.0871, -78.3029, -38.4289}, {70.355, -71.2263, -38.5035}, {65.1092, -64.3659, -37.8335}, {60.4295, -57.9462, -36.5289}, {56.3897, -52.1843, -34.6659}, {53.0571, -47.2821, -32.2985}, {50.4793, -43.4001, -29.4666}, {48.6615, -40.6161, -26.2034}, {47.5436, -38.8852, -22.5422}, {46.9953, -38.031, -18.5216}, {46.8385, -37.786, -14.1898}, {46.8869, -37.8616, -9.60769}, {46.9841, -38.0134, -4.84945}}
-;
-static int path1_size = sizeof(path1)/(3*4);  // sizeof returns bytes in the array.  4 bytes per float. 
-
-// path2 is a line along the y axis
-static float path2[][3]={{51.1959, -44.4871, -56.3099}, {56.0625, -51.7088, -54.9406}, {60.4295, -57.9462, -53.4711}, {64.4477, -63.4755, -51.8924}, {68.2014, -68.4536, -50.1944}, {71.7411, -72.9782, -48.3665}, {75.0977, -77.1133, -46.3972}, {78.2893, -80.9022, -44.2748}, {81.3248, -84.3746, -41.9872}, {84.2057, -87.5507, -39.5226}, {86.9275, -90.4438, -36.8699}, {89.4807, -93.0621, -34.0193}, {91.8511, -95.4101, -30.9638}, {94.0208, -97.4893, -27.6995}, {95.9688, -99.2993, -24.2277}, {97.6722, -100.838, -20.556}, {99.1075, -102.103, -16.6992}, {100.252, -103.091, -12.6804}, {101.086, -103.799, -8.53077}, {101.592, -104.225, -4.28915}, {101.763, -104.367, 0}, {101.592, -104.225, 4.28915}, {101.086, -103.799, 8.53077}, {100.252, -103.091, 12.6804}, {99.1075, -102.103, 16.6992}, {97.6722, -100.838, 20.556}, {95.9688, -99.2993, 24.2277}, {94.0208, -97.4893, 27.6995}, {91.8511, -95.4101, 30.9638}, {89.4807, -93.0621, 34.0193}, {86.9275, -90.4438, 36.8699}, {84.2057, -87.5507, 39.5226}, {81.3248, -84.3746, 41.9872}, {78.2893, -80.9022, 44.2748}, {75.0977, -77.1133, 46.3972}, {71.7411, -72.9782, 48.3665}, {68.2014, -68.4536, 50.1944}, {64.4477, -63.4755, 51.8924}, {60.4295, -57.9462, 53.4711}, {56.0625, -51.7088, 54.9406}}
-;
-static int path2_size = sizeof(path2)/(3*4);  // sizeof returns bytes in the array.  4 bytes per float. 
-boolean forward = true; // used with path2 to reverse direction
-
-
-// Path_Function global variables
-int path_index = 0;
-boolean new_segment = true;
-
-*/
 boolean path1_init,path2_init, hold_init, input_arm_init;
 
 // ##### GLOBAL VARIABLES #####
@@ -178,6 +154,7 @@ void setup() {
   // TUNE SERVO LOW AND HIGH VALUES
   // set_servo(pin,lowang,lowms,highang,highms)
   jA.svo = set_servo(0,  0.0, 960, 170.0, 2200);
+  //jB.svo = set_servo(1, -50.0, 1000, 90.0, 2300); // high to low
   jB.svo = set_servo(1, -50.0, 2300, 90.0, 1000); // high to low
   jC.svo = set_servo(2, -90.0, 2400, 90.0, 1060); // high to low
   jD.svo = set_servo(3,  0.0,  500, 160.0, 2300);
@@ -330,37 +307,9 @@ void log_data(joint jt,char jt_letter,boolean minmax) {
     //Serial.print(jt.desired_angle,1);
 //    Serial.print(", servo_ms,");
 //    Serial.print(jt.servo_ms);
-/*    if (minmax) {
-      Serial.print(", min_pot,");
-      Serial.print(jt.pot_min);
-      Serial.print(", max_pot,");
-      Serial.print(jt.pot_max);  
-    }  */
   #endif
 }
 
-/*
-boolean update_done(joint jt1,joint jt2,joint jt3){
-  float error1,error2,error3;
-  float is_zero = 0.05;  // USED TO DETERMINE ZERO, DEGREES
-
-  error1 = abs(jt1.desired_angle-jt1.previous_angle);
-  error2 = abs(jt2.desired_angle-jt2.previous_angle);
-  error3 = abs(jt3.desired_angle-jt3.previous_angle);
-  
-  if (error1 < is_zero && error2 < is_zero && error3 < is_zero) {
-      #if SERIALOUT
-        Serial.print(",ud-done,");
-      #endif
-    return true;
-  } else {
-        #if SERIALOUT
-          Serial.print(",ud-NOT-done,");
-        #endif
-    return false;
-  }
-}
-*/
 void path1_loop() {
   static unsigned long millisTime;
   static float *angles;
@@ -386,16 +335,24 @@ void path1_loop() {
   } else {
 
       millisTime = millis();
-      time_ang = millisTime*0.0003;
+      time_ang = millisTime*0.001;
     
       ptC[0] = XC + R * cos(time_ang);
       ptC[1] = R * sin(time_ang);
     
       angles = inverse_arm_kinematics(ptC,LEN_AB,LEN_BC);
-      jA.desired_angle = angles[0];
-      jB.desired_angle = angles[1];
-      jT.desired_angle = angles[2];  
+      jA.desired_angle = angles[0]*RADIAN;
+      jB.desired_angle = angles[1]*RADIAN;
+      jT.desired_angle = angles[2]*RADIAN;  
 
+  #if SERIALOUT
+    Serial.print(", A,");
+    Serial.print(jA.desired_angle);
+    Serial.print(", B,");
+    Serial.print(jB.desired_angle);
+    Serial.print(", T,");
+    Serial.print(jT.desired_angle);
+  #endif
         // LOOP UNTIL THE ANGLES ARE MET... UNTIL DONE ROUTINE        
       }
     }
@@ -492,13 +449,6 @@ void loop() {
     millisTime = millis();
     Serial.print("millis,");
     Serial.print(millisTime);
-/*
-    pot_min_max(jA);
-    pot_min_max(jB);
-    pot_min_max(jC);
-    pot_min_max(jD);
-    pot_min_max(jT);
-*/
   #endif
 
   pot_map(jS);  // get Selector angle
@@ -579,13 +529,13 @@ void loop() {
   #endif
 */
   #if SERIALOUT
-    log_data(jA,'A',false);
-    log_data(jB,'B',false);
-    log_data(jC,'C',false);
-    log_data(jD,'D',false);
-    log_data(jT,'T',false);
+    //log_data(jA,'A',false);
+    //log_data(jB,'B',false);
+    //log_data(jC,'C',false);
+    //log_data(jD,'D',false);
+    //log_data(jT,'T',false);
     //log_pot(jT);
-    log_data(jS,'S',false);
+    //log_data(jS,'S',false);
     Serial.println(", END");
   #endif
 }
