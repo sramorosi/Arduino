@@ -57,7 +57,7 @@ float * inverse_arm_kinematics(float c[2], float l_ab, float l_bc) {
     sub_angle1 = atan2(c_new[2],c_new[0]);
     sub_angle2 = acos((pow(c_len,2)+pow(l_ab,2)-pow(l_bc,2))/(2*c_len*l_ab));
     angles[0] = sub_angle1 + sub_angle2;
-    angles[1] = acos((pow(l_bc,2)+pow(l_ab,2)-pow(c_len,2))/(2*l_bc*l_ab));
+    angles[1] = acos((pow(l_bc,2)+pow(l_ab,2)-pow(c_len,2))/(2*l_bc*l_ab))-180.0/RADIAN;
   } else {
     // case where robot arm can not reach point... 
     angles[0] = atan2(c_new[2],c_new[0]);
@@ -74,7 +74,7 @@ float * inverse_arm_kinematics(float c[2], float l_ab, float l_bc) {
   return angles;  // return the angles
 }
 
-/*
+//
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(9600); // baud rate, slower is easier to read
@@ -113,4 +113,4 @@ void loop() {
   Serial.println(", END");
 
 }
-*/
+//

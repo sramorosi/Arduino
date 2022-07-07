@@ -1,30 +1,31 @@
 /* ROBOT ARM CONTROL SOFTWARE FOR SKYSTONE ROBOT ARM
- *  By, SrAmo, June 2022
+ *  By, SrAmo, July 2022
  *  
  *  Joint A, B and T are mechanically similar to SACC Make 2
  *  Joint C is the Claw on this Skystone Arm
  *  The angle of the hand is held parallel to the floor by a belt.
  *  Joint D is the Wrist rotation in the Top View, dosn't exist on Make 2
  *  
- *  Lesson Learned: Short loop times equals smooth arm performance.
- *  Turning off serial output makes loops time much faster.
- *  Turn off any unnesessary code.
- *  Path method uses a lot of memory.
+ *  Turning off serial output makes loops time faster.
  */
-//#include <Servo.h>  // servo library
-// Servo Function library at: http://arduino.cc/en/Reference/Servo
 
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
+#include "MotionControl.h"
 
 // called this way, it uses the default address 0x40
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 #define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
 
-#define SERIALOUT false  // Controlls SERIAL output. Turn on when debugging. 
+#define SERIALOUT true  // Controlls SERIAL output. Turn on when debugging. 
 // SERIAL OUTPUT AFFECTS SMOOTHNESS OF SERVO PERFORMANCE 
 //  WITH SERIAL true AND LOW 9600 BAUD RATE = JERKY PERFORMANCE
 //  WITH false OR HIGH 500000 BAUD RATE = SMOOTH PERFORMANCE
+
+#define LEN_AB 320.0     // Length of Input AB arm in mm
+#define LEN_BC 320.0     // Length of Input BC arm in mm
+#define R 150.0   // radius of motion orbit
+#define XC 200.0  // X offset of the motion orbit
 
 float main_ang_velo = 0.05; // Angular Velocity Limit, DEGREES PER MILLISECOND (~20 is full speed)
 // Servos Max Velocity is about 60 deg in 0.12 sec or 460 deg/sec, or 0.46 degrees per millisecond
@@ -37,6 +38,8 @@ float main_ang_velo = 0.05; // Angular Velocity Limit, DEGREES PER MILLISECOND (
 #define D_ON true
 #define T_ON true
 #define S_ON false
+
+boolean path1_init,path2_init, hold_init, input_arm_init;
 
 struct potentiometer {
   int analog_pin; // Arduino analog pin number (0 - 5)
@@ -107,8 +110,7 @@ arm_servo set_servo(int pin, float lowang, int lowms, float highang, int highms)
 }
   
 void set_joint(joint & jt, float initial_angle) {
-  // Sets the conversion from Angle to Servo Microseconds
-  // Takes an initial angle
+  // Converts initial_angle to Servo Microseconds
   jt.pot_value = 500;  // middle ish
   jt.desired_angle = initial_angle;
   jt.previous_angle = initial_angle;
@@ -134,7 +136,13 @@ void setup() {
       ; // wait for serial port to connect. Needed for native USB port only
     } 
    #endif
- 
+
+  // Set booleans so that all Functions get Initialized
+  path1_init = true;
+  path2_init = true;
+  hold_init = true;
+  input_arm_init = true;
+  
   // TUNE POT LOW AND HIGH VALUES
   // set_pot(pin,lowmv,lowang,highmv,highang)
   jA.pot = set_pot(0 ,134,  0, 895, 178); 
@@ -142,7 +150,7 @@ void setup() {
   jC.pot = set_pot(3 , 116,-90, 903, 90); 
   jD.pot = set_pot(2 ,250, 60, 747, -60); 
   jT.pot = set_pot(4 ,160, -70, 510, 0); 
-  //jS.pot = set_pot(5 , 0, 0, 1023, 280); 
+  jS.pot = set_pot(5 , 0, 0, 1023, 280);  // to tune
 
   // TUNE SERVO LOW AND HIGH VALUES
   // set_servo(pin,lowang,lowms,highang,highms)
@@ -203,9 +211,8 @@ void servo_map(joint & jt) {
 }
 
 void servo_map_with_limits(joint & jt, float rate) {
-// WITH rate limiting
-// SERVO RATE LIMITING, for smooth operation and prevent damage
-// Limit how much a servo can change in a unit time
+// SERVO Map With RATE LIMITING, for smooth operation and to prevent damage
+// Limit how much a servo angle can change in a unit time
 
   int dt;
   float current_velo;
@@ -232,23 +239,68 @@ void log_data(joint jt,char jt_letter,boolean minmax) {
   #if SERIALOUT
     Serial.print(",");
     Serial.print(jt_letter);
-    Serial.print(", pot_value,");
+    Serial.print(", p_value,");
     Serial.print(jt.pot_value);
-    Serial.print(", POTangle,");
+    Serial.print(", Pang,");
     Serial.print(jt.pot_angle,1);
-    Serial.print(", PrevAngle,");
-    Serial.print(jt.previous_angle,1);
-    Serial.print(", DESAngle,");
-    Serial.print(jt.desired_angle,1);
-    Serial.print(", servo_ms,");
-    Serial.print(jt.servo_ms);
+    //Serial.print(", PrevAngle,");
+    //Serial.print(jt.previous_angle,1);
+    //Serial.print(", DESAngle,");
+    //Serial.print(jt.desired_angle,1);
+    //Serial.print(", servo_ms,");
+    //Serial.print(jt.servo_ms);
   #endif
 }
+
+void path1_loop() {
+  static float *angles;
+  static float time_ang;
+  if (path1_init) {
+    // first time in this function, do initialize
+    //  and set the other function to require initialize
+    path1_init=false; 
+    path2_init=true;
+    hold_init=true;  
+    input_arm_init=true;
+    
+     // initialize joints
+    jA.desired_angle = 80.0;
+    jB.desired_angle = 20.0;
+    jC.desired_angle = -70.0;
+    jD.desired_angle = 80.0;
+    jT.desired_angle = 0.0;  
+
+    //main_ang_velo = 0.02;
+
+  } else {
+      millisTime = millis();
+      time_ang = millisTime*0.001;
+    
+      ptC[0] = XC + R * cos(time_ang);
+      ptC[1] = R * sin(time_ang);
+    
+      angles = inverse_arm_kinematics(ptC,LEN_AB,LEN_BC);
+      jA.desired_angle = angles[0]*RADIAN;
+      jB.desired_angle = angles[1]*RADIAN;
+      jT.desired_angle = angles[2]*RADIAN;  
+
+      #if SERIALOUT
+        Serial.print(", A,");
+        Serial.print(jA.desired_angle);
+        Serial.print(", B,");
+        Serial.print(jB.desired_angle);
+        Serial.print(", T,");
+        Serial.print(jT.desired_angle);
+      #endif
+      }
+    }
+
 void input_arm_loop() {
   // Map potentiometer values to Angles and Convert to Robot arm angles
-  // main loop
+  path1_init=true; 
+  path2_init=true; 
+  
   pot_map(jA);
-
   pot_map(jB);
   //jB.desired_angle = -constrain((jA.desired_angle + jB.pot_angle), jB.svo.low_ang, jB.svo.high_ang);  
   jB.desired_angle = -(jA.desired_angle + jB.pot_angle);  
@@ -259,10 +311,6 @@ void input_arm_loop() {
   // Turntable
   pot_map(jT);
   jT.desired_angle = jT.pot_angle-20.0;  // adjust zero
-  
-  // calculate c arm positions from angles
-  //cx = lenAB*cos(outputA*1000 / 57296) + lenBC*cos(outputB*1000 / 57296);
-  //cy = lenAB*sin(outputA*1000 / 57296) + lenBC*sin(outputB*1000 / 57296);
 }
 
 void loop() {
@@ -274,22 +322,27 @@ void loop() {
   jC.pot_value = analogRead(jC.pot.analog_pin);  // read joint Claw
   jD.pot_value = analogRead(jD.pot.analog_pin);  // read D wrist
   jT.pot_value = analogRead(jT.pot.analog_pin);  // read the turntable
-  //jS.pot_value = analogRead(jS.pot.analog_pin);  // read the selector
-  //jS.pot_value = 800;  // read the selector
-
+  jS.pot_value = analogRead(jS.pot.analog_pin);  // read the selector
+ 
   #if SERIALOUT
     // output for debugging
     // Serial.print(val,digits)
     millisTime = millis();
-    Serial.print("millis,");
+    Serial.print("ms,");
     Serial.print(millisTime);
+    Serial.print(",S,");
+    Serial.print(jS.pot_value);
   #endif
-
-  input_arm_loop();
   
-  pot_map(jC);
+  if (jS.pot_value < 600) {
+    path1_loop(); // motion loop
+  } else {
+    input_arm_loop();  // Manually control using input arm
+  }
+    
+  pot_map(jC);  // Claw
 
-  pot_map(jD);
+  pot_map(jD); // Wrist
   jD.desired_angle = jD.pot_angle;
 
   // GET SERVO Pulse width VALUES FROM ROBOT ARM OUTPUT ANGLE

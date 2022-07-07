@@ -5,7 +5,7 @@
 static float t_limit = 120.0 / RADIAN;  // Turntable limits
 
 #define R 150.0   // radius of motion circle
-#define XC 170.0  // X offset of the motion circle
+#define XC 200.0  // X offset of the motion circle
 
 float ptC[3] = {0.0,240.0,150.0};
 
@@ -57,7 +57,7 @@ float * inverse_arm_kinematics(float c[2], float l_ab, float l_bc) {
     sub_angle1 = atan2(c_new[2],c_new[0]);
     sub_angle2 = acos((pow(c_len,2)+pow(l_ab,2)-pow(l_bc,2))/(2*c_len*l_ab));
     angles[0] = sub_angle1 + sub_angle2;
-    angles[1] = acos((pow(l_bc,2)+pow(l_ab,2)-pow(c_len,2))/(2*l_bc*l_ab));
+    angles[1] = acos((pow(l_bc,2)+pow(l_ab,2)-pow(c_len,2))/(2*l_bc*l_ab))-180.0/RADIAN;
   } else {
     // case where robot arm can not reach point... 
     angles[0] = atan2(c_new[2],c_new[0]);

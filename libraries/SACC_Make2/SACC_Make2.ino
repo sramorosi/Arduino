@@ -1,9 +1,7 @@
-/* ROBOT ARM CONTROL SOFTWARE
- *  By, SrAmo, May 2022
- *  Lesson Learned: Short loop times equals smooth arm performance.
- *  Turning off serial output makes loops time much faster.
- *  Using int rather than float or double can make loop time faster.
- *  Turn off any unnesessary code.
+/* ROBOT ARM CONTROL SOFTWARE FOR SACC MAKE 2 ROBOT ARM
+ *  By, SrAmo, July 2022
+ *  
+ *  Turning off serial output makes loops time  faster.
  */
 //#include <Servo.h>  // servo library
 // Servo Function library at: http://arduino.cc/en/Reference/Servo
@@ -16,10 +14,15 @@
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 #define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
 
-#define SERIALOUT false  // Controlls SERIAL output. Turn on when debugging. 
+#define SERIALOUT true  // Controlls SERIAL output. Turn on when debugging. 
 // SERIAL OUTPUT AFFECTS SMOOTHNESS OF SERVO PERFORMANCE 
 //  WITH SERIAL true AND LOW 9600 BAUD RATE = JERKY PERFORMANCE
 //  WITH false OR HIGH 500000 BAUD RATE = SMOOTH PERFORMANCE
+
+#define LEN_AB 195.0     // Length of Input AB arm in mm
+#define LEN_BC 240.0     // Length of Input BC arm in mm
+#define R 150.0   // radius of motion orbit
+#define XC 200.0  // X offset of the motion orbit
 
 float main_ang_velo = 0.07; // Angular Velocity Limit, DEGREES PER MILLISECOND (~20 is full speed)
 // Servos Max Velocity is about 60 deg in 0.12 sec or 460 deg/sec, or 0.46 degrees per millisecond
@@ -34,9 +37,6 @@ float main_ang_velo = 0.07; // Angular Velocity Limit, DEGREES PER MILLISECOND (
 #define S_ON false
 
 boolean path1_init,path2_init, hold_init, input_arm_init;
-
-// ##### GLOBAL VARIABLES #####
-//Servo servoA,servoB,servoC,servoD,servoT,servoS;  // servos for robot arm
 
 struct potentiometer {
   int analog_pin; // Arduino analog pin number (0 - 5)
@@ -107,11 +107,8 @@ arm_servo set_servo(int pin, float lowang, int lowms, float highang, int highms)
 }
   
 void set_joint(joint & jt, float initial_angle) {
-  // Sets the conversion from Angle to Servo Microseconds
-  // Takes an initial angle
+  // Converts initial_angle to Servo Microseconds
   jt.pot_value = 500;  // middle ish
-  //jt.pot_min = 10000;  // opposite of min, for tuning
-  //jt.pot_max = 0;      // opposite of max, for tuning
   jt.desired_angle = initial_angle;
   jt.previous_angle = initial_angle;
   jt.servo_ms = map(initial_angle,jt.svo.low_ang,jt.svo.high_ang,jt.svo.low_ms,jt.svo.high_ms);
@@ -139,6 +136,7 @@ void setup() {
 
   // Set booleans so that all Functions get Initialized
   path1_init = true;
+  path2_init = true;
   hold_init = true;
   input_arm_init = true;
   
@@ -169,36 +167,6 @@ void setup() {
   set_joint(jT,    0.0); 
   set_joint(jS,   90.0);
 
-//  log_pot(jT);
-//    Serial.println(",END");
-
-/*
- * servo.attach(pin, min, max)
-min (optional): the pulse width, in microseconds, corresponding to the minimum (0 degree) angle on the servo (defaults to 544)
-max (optional): the pulse width, in microseconds, corresponding to the maximum (180 degree) angle on the servo (defaults to 2400)
- */
-
-/*
-  #if A_ON
-    servoA.attach(jA.svo.digital_pin);
-  #endif
-  #if B_ON
-    servoB.attach(jB.svo.digital_pin);
-   #endif
-  #if C_ON
-    servoC.attach(jC.svo.digital_pin, 400 , 2500);
-   #endif
-  #if D_ON
-    servoD.attach(jD.svo.digital_pin);
-  #endif
-  #if T_ON
-    servoT.attach(jT.svo.digital_pin, 400 , 2500);
-  #endif
-  #if S_ON
-    servoT.attach(jS.svo.digital_pin);
-  #endif
-*/
-
   pwm.begin();
   /*  Adafruit sevo library
    * In theory the internal oscillator (clock) is 25MHz but it really isn't
@@ -220,17 +188,8 @@ max (optional): the pulse width, in microseconds, corresponding to the maximum (
   pwm.setPWMFreq(SERVO_FREQ);  // Analog servos run at ~50 Hz updates
 
   delay(10);
-
 }
 
-/*
-void pot_min_max(joint & jt) {
-  // Save min and max pot values. Sweep pots, read values.
-  // Not needed when Serial is off.
-  jt.pot_min = min(jt.pot_value,jt.pot_min); // update min
-  jt.pot_max = max(jt.pot_value,jt.pot_max); // update max
-}
-*/
 void pot_map(joint & jt) {
   // Map a potentiometer value in millivolts to an angle
   // map(value, fromLow, fromHigh, toLow, toHigh), uses integer math
@@ -247,14 +206,6 @@ void servo_map(joint & jt) {
   jt.servo_ms = map(jt.desired_angle, jt.svo.low_ang, jt.svo.high_ang, jt.svo.low_ms, jt.svo.high_ms);
 
   //jt.servo_ms = map(jt.previous_angle, jt.svo.low_ang, jt.svo.high_ang, jt.svo.low_ms, jt.svo.high_ms);
-
-  /*
-  if (toLow < toHigh) {
-    jt.servo_ms = constrain(jt.servo_ms,toLow,toHigh);
-  } else {
-    jt.servo_ms = constrain(jt.servo_ms,toHigh,toLow);
-  }
-  */
 }
 
 void servo_map_with_limits(joint & jt, float rate) {
@@ -281,15 +232,7 @@ void servo_map_with_limits(joint & jt, float rate) {
 
   // Map joint angle to the servo microsecond value
   jt.servo_ms = map(jt.previous_angle, jt.svo.low_ang, jt.svo.high_ang, jt.svo.low_ms, jt.svo.high_ms);
- 
-  /*
-  if (toLow < toHigh) {
-    jt.servo_ms = constrain(jt.servo_ms,toLow,toHigh);
-  } else {
-    jt.servo_ms = constrain(jt.servo_ms,toHigh,toLow);
-  }
-  */
-  
+   
   jt.previous_millis = millis();
 }
 
@@ -311,10 +254,8 @@ void log_data(joint jt,char jt_letter,boolean minmax) {
 }
 
 void path1_loop() {
-  static unsigned long millisTime;
   static float *angles;
   static float time_ang;
-  // reads the path array and moves the arm
   if (path1_init) {
     // first time in this function, do initialize
     //  and set the other function to require initialize
@@ -333,7 +274,6 @@ void path1_loop() {
     //main_ang_velo = 0.02;
 
   } else {
-
       millisTime = millis();
       time_ang = millisTime*0.001;
     
@@ -345,17 +285,16 @@ void path1_loop() {
       jB.desired_angle = angles[1]*RADIAN;
       jT.desired_angle = angles[2]*RADIAN;  
 
-  #if SERIALOUT
-    Serial.print(", A,");
-    Serial.print(jA.desired_angle);
-    Serial.print(", B,");
-    Serial.print(jB.desired_angle);
-    Serial.print(", T,");
-    Serial.print(jT.desired_angle);
-  #endif
-        // LOOP UNTIL THE ANGLES ARE MET... UNTIL DONE ROUTINE        
-      }
-    }
+      #if SERIALOUT
+        Serial.print(", A,");
+        Serial.print(jA.desired_angle);
+        Serial.print(", B,");
+        Serial.print(jB.desired_angle);
+        Serial.print(", T,");
+        Serial.print(jT.desired_angle);
+      #endif
+     }
+  }
 
 void path2_loop() {
   // reads the path array and moves the arm
@@ -420,15 +359,11 @@ void input_arm_loop() {
     pot_map(jA);
   
     pot_map(jB);
-    jB.desired_angle = constrain((jA.desired_angle + jB.pot_angle), jB.svo.low_ang, jB.svo.high_ang);  
+    jB.desired_angle = constrain((jA.desired_angle + jB.pot_angle), jB.svo.low_ang, jB.svo.high_ang); 
+     
     // Turntable
     pot_map(jT);
     jT.desired_angle = -jT.pot_angle;  // reverse the angle
-    
-    // calculate c arm positions from angles
-    //cx = lenAB*cos(outputA*1000 / 57296) + lenBC*cos(outputB*1000 / 57296);
-    //cy = lenAB*sin(outputA*1000 / 57296) + lenBC*sin(outputB*1000 / 57296);
-      
   }
 }
 
@@ -447,39 +382,22 @@ void loop() {
     // output for debugging
     // Serial.print(val,digits)
     millisTime = millis();
-    Serial.print("millis,");
+    Serial.print("ms,");
     Serial.print(millisTime);
-  #endif
-
-  pot_map(jS);  // get Selector angle
+    Serial.print(",S,");
+    Serial.print(jS.pot_value);
+ #endif
 
   if (jS.pot_value < 200) {
-    // Move the arm using the path2 array
-    #if SERIALOUT
-      Serial.print(",<200-PATH,");
-    #endif
-    //main_ang_velo = 0.01;
-    path2_loop();
+    path2_loop();  // Move the arm using the path2 array
   } else if (jS.pot_value < 400) {
-    // Move the arm using the path1 array
-    #if SERIALOUT
-      Serial.print(",<400-PATH,");
-    #endif
-    main_ang_velo = 0.04;
-    path1_loop();
+    path1_loop();  // Move the arm using the path1 array
   } else if (jS.pot_value < 600) {
-    // Hold arm in initialize position
-    #if SERIALOUT
-      Serial.print(",400-600-HOLD,");
-    #endif
-    hold_loop();
+    hold_loop();  // Hold arm in initialize position
   } else {
-    // Manually control arm using input arm
-    #if SERIALOUT
-      Serial.print(",>600-MANUAL,");
-    #endif
-    input_arm_loop();    
+    input_arm_loop();   // Manually control arm using input arm
   }
+  
   // want Joint C to have a fix angle relative to ground, thus driven by joint B.
   // The C potentiometer is for tuning (adding to) the C position.
   pot_map(jC);
@@ -531,7 +449,7 @@ void loop() {
   #if SERIALOUT
     //log_data(jA,'A',false);
     //log_data(jB,'B',false);
-    //log_data(jC,'C',false);
+    log_data(jC,'C',false);
     //log_data(jD,'D',false);
     //log_data(jT,'T',false);
     //log_pot(jT);
