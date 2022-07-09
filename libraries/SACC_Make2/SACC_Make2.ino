@@ -14,14 +14,14 @@
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 #define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
 
-#define SERIALOUT true  // Controlls SERIAL output. Turn on when debugging. 
+#define SERIALOUT false  // Controlls SERIAL output. Turn on when debugging. 
 // SERIAL OUTPUT AFFECTS SMOOTHNESS OF SERVO PERFORMANCE 
 //  WITH SERIAL true AND LOW 9600 BAUD RATE = JERKY PERFORMANCE
 //  WITH false OR HIGH 500000 BAUD RATE = SMOOTH PERFORMANCE
 
 #define LEN_AB 195.0     // Length of Input AB arm in mm
 #define LEN_BC 240.0     // Length of Input BC arm in mm
-#define R 150.0   // radius of motion orbit
+#define R 120.0   // radius of motion orbit
 #define XC 200.0  // X offset of the motion orbit
 
 float main_ang_velo = 0.07; // Angular Velocity Limit, DEGREES PER MILLISECOND (~20 is full speed)
@@ -246,8 +246,8 @@ void log_data(joint jt,char jt_letter,boolean minmax) {
     Serial.print(jt.pot_angle,1);
 //    Serial.print(", PrevAngle,");
 //    Serial.print(jt.previous_angle,1);
-    //Serial.print(", DESAngle,");
-    //Serial.print(jt.desired_angle,1);
+//    Serial.print(", DESAngle,");
+//    Serial.print(jt.desired_angle,1);
 //    Serial.print(", servo_ms,");
 //    Serial.print(jt.servo_ms);
   #endif
@@ -279,11 +279,18 @@ void path1_loop() {
     
       ptC[0] = XC + R * cos(time_ang);
       ptC[1] = R * sin(time_ang);
+      ptC[2] = 100.0;
     
       angles = inverse_arm_kinematics(ptC,LEN_AB,LEN_BC);
       jA.desired_angle = angles[0]*RADIAN;
-      jB.desired_angle = angles[1]*RADIAN;
+      jB.desired_angle = -angles[1]*RADIAN - jA.desired_angle;
       jT.desired_angle = angles[2]*RADIAN;  
+  // want Joint C to have a fix angle relative to ground, thus driven by joint B.
+  // The C potentiometer is for tuning (adding to) the C position.
+  pot_map(jC);
+  jC.pot_angle = -jC.pot_angle;  // REVERSED
+  jC.desired_angle = jC.pot_angle +jB.desired_angle - 60.0;
+
 
       #if SERIALOUT
         Serial.print(", A,");
@@ -360,6 +367,13 @@ void input_arm_loop() {
   
     pot_map(jB);
     jB.desired_angle = constrain((jA.desired_angle + jB.pot_angle), jB.svo.low_ang, jB.svo.high_ang); 
+
+  // want Joint C to have a fix angle relative to ground, thus driven by joint B.
+  // The C potentiometer is for tuning (adding to) the C position.
+  pot_map(jC);
+  jC.pot_angle = -jC.pot_angle;  // REVERSED
+  jC.desired_angle = jC.pot_angle -jB.desired_angle - 60.0;
+
      
     // Turntable
     pot_map(jT);
@@ -398,12 +412,6 @@ void loop() {
     input_arm_loop();   // Manually control arm using input arm
   }
   
-  // want Joint C to have a fix angle relative to ground, thus driven by joint B.
-  // The C potentiometer is for tuning (adding to) the C position.
-  pot_map(jC);
-  jC.pot_angle = -jC.pot_angle;  // REVERSED
-  jC.desired_angle = jC.pot_angle -jB.desired_angle - 60.0;
-
   // Joint D is the Claw... sorry confusing, but C was taken
   pot_map(jD);
   jD.desired_angle = jD.pot_angle;

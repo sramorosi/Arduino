@@ -1,3 +1,5 @@
+
+
 /* ROBOT ARM CONTROL SOFTWARE FOR SKYSTONE ROBOT ARM
  *  By, SrAmo, July 2022
  *  
@@ -17,7 +19,7 @@
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 #define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
 
-#define SERIALOUT true  // Controlls SERIAL output. Turn on when debugging. 
+#define SERIALOUT false  // Controlls SERIAL output. Turn on when debugging. 
 // SERIAL OUTPUT AFFECTS SMOOTHNESS OF SERVO PERFORMANCE 
 //  WITH SERIAL true AND LOW 9600 BAUD RATE = JERKY PERFORMANCE
 //  WITH false OR HIGH 500000 BAUD RATE = SMOOTH PERFORMANCE
@@ -27,7 +29,7 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 #define R 150.0   // radius of motion orbit
 #define XC 200.0  // X offset of the motion orbit
 
-float main_ang_velo = 0.05; // Angular Velocity Limit, DEGREES PER MILLISECOND (~20 is full speed)
+float main_ang_velo = 0.08; // Angular Velocity Limit, DEGREES PER MILLISECOND (~20 is full speed)
 // Servos Max Velocity is about 60 deg in 0.12 sec or 460 deg/sec, or 0.46 degrees per millisecond
 // This assumes no load and full (7 V) voltage.
 
@@ -149,7 +151,7 @@ void setup() {
   jB.pot = set_pot(1 ,500,-90, 908,  0); 
   jC.pot = set_pot(3 , 116,-90, 903, 90); 
   jD.pot = set_pot(2 ,250, 60, 747, -60); 
-  jT.pot = set_pot(4 ,160, -70, 510, 0); 
+  jT.pot = set_pot(4 ,160, -90, 510, 0); 
   jS.pot = set_pot(5 , 0, 0, 1023, 280);  // to tune
 
   // TUNE SERVO LOW AND HIGH VALUES
@@ -160,7 +162,7 @@ void setup() {
   jC.svo = set_servo(2, -80.0, 600, 80.0, 2500); // high to low
   // D = Wrist (top view rotation)
   jD.svo = set_servo(3,  -60.0,  500, 100.0, 2300);
-  jT.svo = set_servo(4,-70.0,  400, 70.0, 2500);
+  jT.svo = set_servo(4,-90.0,  670, 90.0, 1930);
   //jS.svo = set_servo(3,  0.0,  400, 180.0, 2500);
 
   // INITIALIZATION ANGLES FOR ARM
@@ -245,10 +247,10 @@ void log_data(joint jt,char jt_letter,boolean minmax) {
     Serial.print(jt.pot_angle,1);
     //Serial.print(", PrevAngle,");
     //Serial.print(jt.previous_angle,1);
-    //Serial.print(", DESAngle,");
-    //Serial.print(jt.desired_angle,1);
-    //Serial.print(", servo_ms,");
-    //Serial.print(jt.servo_ms);
+    Serial.print(", DESAngle,");
+    Serial.print(jt.desired_angle,1);
+    Serial.print(", servo_ms,");
+    Serial.print(jt.servo_ms);
   #endif
 }
 
@@ -278,10 +280,11 @@ void path1_loop() {
     
       ptC[0] = XC + R * cos(time_ang);
       ptC[1] = R * sin(time_ang);
+      ptC[2] = 200.0;
     
       angles = inverse_arm_kinematics(ptC,LEN_AB,LEN_BC);
       jA.desired_angle = angles[0]*RADIAN;
-      jB.desired_angle = angles[1]*RADIAN;
+      jB.desired_angle = -angles[1]*RADIAN - jA.desired_angle;
       jT.desired_angle = angles[2]*RADIAN;  
 
       #if SERIALOUT
@@ -352,7 +355,7 @@ void loop() {
   servo_map(jD);  // full speed on servo claw
   
   // Turntable 
-  servo_map_with_limits(jT, main_ang_velo/2.0); 
+  servo_map_with_limits(jT, main_ang_velo/1.20); 
 
   // No S servo attached
   //servo_map_with_limits(jS,main_ang_velo); 
