@@ -4,8 +4,8 @@
 
 static float t_limit = 120.0 / RADIAN;  // Turntable limits
 
-#define R 150.0   // radius of motion circle
-#define XC 200.0  // X offset of the motion circle
+#define R_TEST 150.0   // radius of motion circle
+#define XC_TEST 200.0  // X offset of the motion circle
 
 float ptC[3] = {0.0,240.0,150.0};
 
@@ -16,7 +16,20 @@ float rot_x(float x, float y, float a) {
 float rot_y(float x, float y, float a) {
   return x*sin(a)+y*cos(a);
 }
-
+/*
+float * arc_pt(float s, float rad, float rot_cent_x, float w, float h) { // rtn point on arc
+  // s is normalized arc length, w is arc width (Y dir), h is Z
+  static float pt[3] = {0.0,0.0,0.0}; // [ X , Y , Z ]
+  b = sqrt(pow(rad,2.0)+pow(w/2.0,2.0));   
+  beta = acos(rad/b);  // half arc angle
+  gamma = beta * (s-0.5); // from -beta to +beta
+  // rotate the arc point by gamma
+  pt[0] = b*cos(gamma)+rot_cent_x;
+  pt[1] = b*sin(gamma);
+  pt[2] = h;
+  return pt;
+}
+*/
 float * inverse_arm_kinematics(float c[2], float l_ab, float l_bc) {
   // Given a four body system GroundT-TA-AB-BC, where T (turntable) and A are [0,0,0]
   // The location of C is specified (c[])
@@ -31,7 +44,7 @@ float * inverse_arm_kinematics(float c[2], float l_ab, float l_bc) {
   static float angles[3] = {0.0,0.0,0.0};  // [ A , B , T ]
   static float c_new[3];
   
-  xy_len = sqrt(pow(c[0],2)+pow(c[1],2)); 
+  xy_len = sqrt(pow(c[0],2.0)+pow(c[1],2.0)); 
 
   // compute the turntable angle
   if (xy_len > 0) {  
@@ -93,8 +106,8 @@ void loop() {
   millisTime = millis();
   time_ang = millisTime*0.0003;
 
-  ptC[0] = XC + R * cos(time_ang);
-  ptC[1] = R * sin(time_ang);
+  ptC[0] = XC_TEST + R_TEST * cos(time_ang);
+  ptC[1] = R_TEST * sin(time_ang);
 //
   Serial.print("Cx,");
   Serial.print(ptC[0]);

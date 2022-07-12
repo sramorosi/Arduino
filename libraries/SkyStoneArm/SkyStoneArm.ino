@@ -1,5 +1,4 @@
 
-
 /* ROBOT ARM CONTROL SOFTWARE FOR SKYSTONE ROBOT ARM
  *  By, SrAmo, July 2022
  *  
@@ -19,7 +18,7 @@
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 #define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
 
-#define SERIALOUT false  // Controlls SERIAL output. Turn on when debugging. 
+#define SERIALOUT true  // Controlls SERIAL output. Turn on when debugging. 
 // SERIAL OUTPUT AFFECTS SMOOTHNESS OF SERVO PERFORMANCE 
 //  WITH SERIAL true AND LOW 9600 BAUD RATE = JERKY PERFORMANCE
 //  WITH false OR HIGH 500000 BAUD RATE = SMOOTH PERFORMANCE
@@ -28,6 +27,7 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 #define LEN_BC 320.0     // Length of Input BC arm in mm
 #define R 150.0   // radius of motion orbit
 #define XC 200.0  // X offset of the motion orbit
+#define Z_PATH 200.0 // Z height of the path
 
 float main_ang_velo = 0.08; // Angular Velocity Limit, DEGREES PER MILLISECOND (~20 is full speed)
 // Servos Max Velocity is about 60 deg in 0.12 sec or 460 deg/sec, or 0.46 degrees per millisecond
@@ -254,9 +254,25 @@ void log_data(joint jt,char jt_letter,boolean minmax) {
   #endif
 }
 
+float * arc_pt(float s, float rad, float rot_cent_x, float w, float h) { // rtn point on arc
+  // s is normalized arc length, w is arc width (Y dir), h is Z
+  static float pt[3] = {0.0,0.0,0.0}; // [ X , Y , Z ]
+  static float b, beta, gamma;
+  b = sqrt(pow(rad,2.0)+pow(w/2.0,2.0));   
+  beta = acos(rad/b);  // half arc angle
+  gamma = beta * (s-0.5); // from -beta to +beta
+  // rotate the arc point by gamma
+  pt[0] = b*cos(gamma)+rot_cent_x;
+  pt[1] = b*sin(gamma);
+  pt[2] = h;
+  return pt;
+}
+
 void path1_loop() {
-  static float *angles;
-  static float time_ang;
+  static float *angles; // pointer to angles array
+  static float time_ang,s;
+  static float focal_pt[3] = {500.0,0.0,Z_PATH}; 
+  static float *ptC;  // pointer to points array
   if (path1_init) {
     // first time in this function, do initialize
     //  and set the other function to require initialize
@@ -277,23 +293,31 @@ void path1_loop() {
   } else {
       millisTime = millis();
       time_ang = millisTime*0.001;
-    
+
+      s = time_ang;  //  HOW??
+      ptC = arc_pt(s,R,XC,LEN_AB*1.5,Z_PATH);
+      /*
       ptC[0] = XC + R * cos(time_ang);
       ptC[1] = R * sin(time_ang);
-      ptC[2] = 200.0;
+      ptC[2] = Z_PATH;   */
     
       angles = inverse_arm_kinematics(ptC,LEN_AB,LEN_BC);
       jA.desired_angle = angles[0]*RADIAN;
       jB.desired_angle = -angles[1]*RADIAN - jA.desired_angle;
       jT.desired_angle = angles[2]*RADIAN;  
 
+      //  wrist angle
+      //jD.desired_angle = ??(ptC,focal_pt);  atan2(ptC[1],(focal_pt[0]-ptC[0]) );  // y,x
+
       #if SERIALOUT
         Serial.print(", A,");
         Serial.print(jA.desired_angle);
         Serial.print(", B,");
         Serial.print(jB.desired_angle);
-        Serial.print(", T,");
+        Serial.print(", Table,");
         Serial.print(jT.desired_angle);
+        Serial.print(", Wrist,");
+        Serial.print(jD.desired_angle);
       #endif
       }
     }
@@ -352,7 +376,7 @@ void loop() {
   servo_map_with_limits(jA, main_ang_velo);
   servo_map_with_limits(jB, main_ang_velo);  
   servo_map(jC); 
-  servo_map(jD);  // full speed on servo claw
+  servo_map(jD);  // full speed on servo wrist...
   
   // Turntable 
   servo_map_with_limits(jT, main_ang_velo/1.20); 
@@ -381,7 +405,7 @@ void loop() {
     //log_data(jB,'B',false);
     //log_data(jC,'C',false);
     //log_data(jD,'D',false);
-    log_data(jT,'T',false);
+    //log_data(jT,'T',false);
     //log_pot(jT);
     //log_data(jS,'S',false);
     Serial.println(", END");
