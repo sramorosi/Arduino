@@ -1,4 +1,3 @@
-
 /* ROBOT ARM CONTROL SOFTWARE FOR SKYSTONE ROBOT ARM
  *  By, SrAmo, July 2022
  *  
@@ -7,9 +6,7 @@
  *  The angle of the hand is held parallel to the floor by a belt.
  *  Joint D is the Wrist rotation in the Top View, dosn't exist on Make 2
  *  
- *  Turning off serial output makes loops time faster.
  */
-
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
 #include "MotionControl.h"
@@ -25,126 +22,39 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 
 #define LEN_AB 320.0     // Length of Input AB arm in mm
 #define LEN_BC 320.0     // Length of Input BC arm in mm
-#define R 150.0   // radius of motion orbit
-#define XC 200.0  // X offset of the motion orbit
-#define Z_PATH 200.0 // Z height of the path
 
-float main_ang_velo = 0.08; // Angular Velocity Limit, DEGREES PER MILLISECOND (~20 is full speed)
+float main_ang_velo = 0.08; // Angular Velocity Limit, DEGREES PER MILLISECOND
 // Servos Max Velocity is about 60 deg in 0.12 sec or 460 deg/sec, or 0.46 degrees per millisecond
 // This assumes no load and full (7 V) voltage.
 
 // Booleans to turn on Servos. [bad code can damage servos. This can help isolate]
-#define A_ON true
-#define B_ON true
-#define C_ON true
-#define D_ON true
-#define T_ON true
+#define A_ON false
+#define B_ON false
+#define C_ON false
+#define D_ON false
+#define T_ON false
 #define S_ON false
 
-boolean path1_init,path2_init, hold_init, input_arm_init;
+struct machine_state skystone_arm; 
 
-struct potentiometer {
-  int analog_pin; // Arduino analog pin number (0 - 5)
-  int low_mv; // low voltage point, from 0 (0 Volts) to 1023 (5 Volts)
-  int low_ang; // corresponding angle at low voltage
-  int high_mv; // high voltage point, from 0 (0 Volts) to 1023 (5 Volts)
-  int high_ang; // corresponding angle at high voltage
-  // Note: low and high values do not need to be  at the extreems
-  //  Tip:  Pick low and high angles that are easy to read/set/measure
-  //      Values outside of the low and high will be extrapolated
-};
-
-struct arm_servo {
-  // Values are pulse width in microseconds (~400 to ~2400--SERVOS SHOULT BE TESTED)
-  // 270 deg servo, gets 290 deg motion with 400 to 2500 microsecond range
-  // 180 deg servo, gets 160 deg motion with 500 to 2800 microsecond range
-  // 180 deg SAVOX, gets 170 deg motion with 500 to 2800 microsecond range
-  uint8_t digital_pin; // Adafruit digital pin number
-  int low_ms; // low microsecond point, from about 500 to 2400
-  float low_ang; // corresponding angle at low microsecond
-  int high_ms; // high microsecond point, from about 500 to 2400
-  float high_ang; // corresponding angle at high microsecond
-}; 
-
-struct joint {
-  potentiometer pot; // Sub structure which contains static pot information
-  arm_servo svo; // Sub structure which contains the static servo information
-  int pot_value;  // current potentiometer value in millivolts 
-  float pot_angle; // Potentiometer arm angle, if used
-  unsigned long previous_millis; // used to find servo rate of change
-  float previous_angle;  // used with rate limiting
-  float desired_angle;  // angle from input device or array
-  int servo_ms;   // servo command in microseconds
-  //float previous_velo;  // previous velocity, used to find acceleration
-};
 struct joint jA,jB,jC,jD,jT,jS;
 
-unsigned long millisTime;
-
-//#define lenAB 50.0     // Length of Input AB arm in mm
-//#define lenBC 60.0     // Length of Input BC arm in mm
-//#define RADIAN 57.2957795  // number of degrees in one radian
-
-//float cx,cy; // to be used for range limits
-
-potentiometer set_pot(int pin, int lowmv, int lowang, int highmv, int highang) {
-  // set_pot(pin,lowmv,lowang,highmv,highang)
-  // Note: low and high values do not need to be  at the extreems
-  struct potentiometer pot;
-  pot.analog_pin = pin;
-  pot.low_mv = lowmv;
-  pot.low_ang = lowang;
-  pot.high_mv = highmv;
-  pot.high_ang = highang;
-  return pot;
-}
-
-arm_servo set_servo(int pin, float lowang, int lowms, float highang, int highms) {
-  // set_servo(pin,lowang,lowms,highang,highmv)
-  // Note: low and high values do not need to be  at the extreems
-  struct arm_servo svo;
-  svo.digital_pin = pin;
-  svo.low_ang = lowang;
-  svo.low_ms = lowms;
-  svo.high_ang = highang;
-  svo.high_ms = highms;
-  return svo;
-}
-  
-void set_joint(joint & jt, float initial_angle) {
-  // Converts initial_angle to Servo Microseconds
-  jt.pot_value = 500;  // middle ish
-  jt.desired_angle = initial_angle;
-  jt.previous_angle = initial_angle;
-  jt.servo_ms = map(initial_angle,jt.svo.low_ang,jt.svo.high_ang,jt.svo.low_ms,jt.svo.high_ms);
-  jt.previous_millis = millis();
-}
-
-void log_pot(joint jt) {
-    Serial.print(", pot.low_mv,");
-    Serial.print(jt.pot.low_mv);
-    Serial.print(", pot.high_mv,");
-    Serial.print(jt.pot.high_mv);
-    Serial.print(", pot.low_ang,");
-    Serial.print(jt.pot.low_ang);
-    Serial.print(", pot.high_ang,");
-    Serial.print(jt.pot.high_ang);
-}
+static int cmd_array[][SIZE_CMD_ARRAY]={{1,100,LEN_BC-20,0,LEN_AB,0,0,0},
+                           {0,3000,0,0,0,0,0,0},
+                           {1,100,LEN_BC-40,-200,LEN_AB,0,0,0},
+                           {1,50,LEN_BC,LEN_BC,LEN_AB,0,0,0}};
 
 void setup() {
+  static int cmd_size = sizeof(cmd_array)/(SIZE_CMD_ARRAY*2);  // sizeof array.  2 bytes per int
   #if SERIALOUT
     Serial.begin(9600); // baud rate, slower is easier to read
     while (!Serial) {
       ; // wait for serial port to connect. Needed for native USB port only
     } 
-   #endif
+    Serial.print("cmd_size,");
+    Serial.println(cmd_size);
+  #endif
 
-  // Set booleans so that all Functions get Initialized
-  path1_init = true;
-  path2_init = true;
-  hold_init = true;
-  input_arm_init = true;
-  
   // TUNE POT LOW AND HIGH VALUES
   // set_pot(pin,lowmv,lowang,highmv,highang)
   jA.pot = set_pot(0 ,134,  0, 895, 178); 
@@ -172,6 +82,9 @@ void setup() {
   set_joint(jD,   80.0);
   set_joint(jT,    -10.0); 
   //set_joint(jS,   90.0);
+  
+  skystone_arm = setup_ms(LEN_BC, 0.0, LEN_AB,cmd_size);
+  skystone_arm.state = 1; // this should be overridden by S potentiometer
 
   pwm.begin();
   /*  Adafruit sevo library
@@ -193,196 +106,90 @@ void setup() {
   pwm.setOscillatorFrequency(27000000);
   pwm.setPWMFreq(SERVO_FREQ);  // Analog servos run at ~50 Hz updates
 
-  delay(10);
+  delay(10); // not sure why, but adafruit did it.
 }
-
-void pot_map(joint & jt) {
-  // Map a potentiometer value in millivolts to an angle
-  // map(value, fromLow, fromHigh, toLow, toHigh), uses integer math
-  // NOTE: SCALE ANGLES *10 THEN DIVIDE BY 10.0 TO GET 0.1 PRECISION FROM POT VALUES
-  jt.pot_angle = map(jt.pot_value, jt.pot.low_mv, jt.pot.high_mv, jt.pot.low_ang*10, jt.pot.high_ang*10) / 10.0; 
-  
-  jt.desired_angle = jt.pot_angle;  // assume that the two are equal for now
-}
-
-void servo_map(joint & jt) {
-  // Map an arm angle to servo microseconds
-  // PLAIN, No Rate Limiting
-  // Map joint angle to the servo microsecond value
-  jt.servo_ms = map(jt.desired_angle, jt.svo.low_ang, jt.svo.high_ang, jt.svo.low_ms, jt.svo.high_ms);
-}
-
-void servo_map_with_limits(joint & jt, float rate) {
-// SERVO Map With RATE LIMITING, for smooth operation and to prevent damage
-// Limit how much a servo angle can change in a unit time
-
-  int dt;
-  float current_velo;
-  
-  dt = jt.previous_millis - millis();
-
-  current_velo = (jt.desired_angle-jt.previous_angle)/dt;
-  
-  if (current_velo > rate) {
-    jt.previous_angle += rate*dt;
-  } else if (-current_velo > rate) {
-    jt.previous_angle -= rate*dt;
-  } else {
-    jt.previous_angle = jt.desired_angle;
-  }
-
-  // Map joint angle to the servo microsecond value
-  jt.servo_ms = map(jt.previous_angle, jt.svo.low_ang, jt.svo.high_ang, jt.svo.low_ms, jt.svo.high_ms);
- 
-  jt.previous_millis = millis();
-}
-
-void log_data(joint jt,char jt_letter,boolean minmax) {
-  #if SERIALOUT
-    Serial.print(",");
-    Serial.print(jt_letter);
-    Serial.print(", p_value,");
-    Serial.print(jt.pot_value);
-    Serial.print(", Pang,");
-    Serial.print(jt.pot_angle,1);
-    //Serial.print(", PrevAngle,");
-    //Serial.print(jt.previous_angle,1);
-    Serial.print(", DESAngle,");
-    Serial.print(jt.desired_angle,1);
-    Serial.print(", servo_ms,");
-    Serial.print(jt.servo_ms);
-  #endif
-}
-
-float * arc_pt(float s, float rad, float rot_cent_x, float w, float h) { // rtn point on arc
-  // s is normalized arc length, w is arc width (Y dir), h is Z
-  static float pt[3] = {0.0,0.0,0.0}; // [ X , Y , Z ]
-  static float b, beta, gamma;
-  b = sqrt(pow(rad,2.0)+pow(w/2.0,2.0));   
-  beta = acos(rad/b);  // half arc angle
-  gamma = beta * (s-0.5); // from -beta to +beta
-  // rotate the arc point by gamma
-  pt[0] = b*cos(gamma)+rot_cent_x;
-  pt[1] = b*sin(gamma);
-  pt[2] = h;
-  return pt;
-}
-
-void path1_loop() {
-  static float *angles; // pointer to angles array
-  static float time_ang,s;
-  static float focal_pt[3] = {500.0,0.0,Z_PATH}; 
-  static float *ptC;  // pointer to points array
-  if (path1_init) {
-    // first time in this function, do initialize
-    //  and set the other function to require initialize
-    path1_init=false; 
-    path2_init=true;
-    hold_init=true;  
-    input_arm_init=true;
-    
-     // initialize joints
-    jA.desired_angle = 80.0;
-    jB.desired_angle = 20.0;
-    jC.desired_angle = -70.0;
-    jD.desired_angle = 80.0;
-    jT.desired_angle = 0.0;  
-
-    //main_ang_velo = 0.02;
-
-  } else {
-      millisTime = millis();
-      time_ang = millisTime*0.001;
-
-      s = time_ang;  //  HOW??
-      ptC = arc_pt(s,R,XC,LEN_AB*1.5,Z_PATH);
-      /*
-      ptC[0] = XC + R * cos(time_ang);
-      ptC[1] = R * sin(time_ang);
-      ptC[2] = Z_PATH;   */
-    
-      angles = inverse_arm_kinematics(ptC,LEN_AB,LEN_BC);
-      jA.desired_angle = angles[0]*RADIAN;
-      jB.desired_angle = -angles[1]*RADIAN - jA.desired_angle;
-      jT.desired_angle = angles[2]*RADIAN;  
-
-      //  wrist angle
-      //jD.desired_angle = ??(ptC,focal_pt);  atan2(ptC[1],(focal_pt[0]-ptC[0]) );  // y,x
-
-      #if SERIALOUT
-        Serial.print(", A,");
-        Serial.print(jA.desired_angle);
-        Serial.print(", B,");
-        Serial.print(jB.desired_angle);
-        Serial.print(", Table,");
-        Serial.print(jT.desired_angle);
-        Serial.print(", Wrist,");
-        Serial.print(jD.desired_angle);
-      #endif
-      }
-    }
 
 void input_arm_loop() {
-  // Map potentiometer values to Angles and Convert to Robot arm angles
-  path1_init=true; 
-  path2_init=true; 
-  
-  pot_map(jA);
-  pot_map(jB);
-  //jB.desired_angle = -constrain((jA.desired_angle + jB.pot_angle), jB.svo.low_ang, jB.svo.high_ang);  
-  jB.desired_angle = -(jA.desired_angle + jB.pot_angle);  
-  if (jB.desired_angle < -35.0) {
-    jB.desired_angle = -35.0;  // limit the B joint weight from contacting base 
-  } 
- 
-  // Turntable
-  pot_map(jT);
-  jT.desired_angle = jT.pot_angle-20.0;  // adjust zero
-}
-
-void loop() {
-  //########### MAIN LOOP ############
-
   // reads the pots
   jA.pot_value = analogRead(jA.pot.analog_pin);  // read joint A
   jB.pot_value = analogRead(jB.pot.analog_pin);  // read joint B
   jC.pot_value = analogRead(jC.pot.analog_pin);  // read joint Claw
   jD.pot_value = analogRead(jD.pot.analog_pin);  // read D wrist
   jT.pot_value = analogRead(jT.pot.analog_pin);  // read the turntable
+
+  pot_map(jA);
+  pot_map(jB);
+  jB.desired_angle = -(jA.desired_angle + jB.pot_angle);  
+  if (jB.desired_angle < -35.0) {
+    jB.desired_angle = -35.0;  // limit the B joint weight from contacting base 
+  } 
+  pot_map(jC);  // Claw
+  pot_map(jD); // Wrist
+  jD.desired_angle = jD.pot_angle;
+  pot_map(jT); // Turntable
+  jT.desired_angle = jT.pot_angle-20.0;  // adjust zero
+}
+
+void loop() {
+  //########### MAIN LOOP ############
+  static float *angles;
+  static unsigned long mst;
+
+  mst = millis();
+  skystone_arm.dt = mst - skystone_arm.prior_mst; // delta time
+  skystone_arm.prior_mst = mst;
+
   jS.pot_value = analogRead(jS.pot.analog_pin);  // read the selector
+
+  if (jS.pot_value < 600) {
+    skystone_arm.state = 1;  // read command list
+  } else {
+    skystone_arm.state = 2;  // Manually control using input arm
+  }
  
   #if SERIALOUT
     // output for debugging
     // Serial.print(val,digits)
-    millisTime = millis();
-    Serial.print("ms,");
-    Serial.print(millisTime);
+    Serial.print("mst,");
+    Serial.print(mst);
     Serial.print(",S,");
     Serial.print(jS.pot_value);
+    Serial.print(", STATE,");
+    Serial.print(skystone_arm.state);
+    Serial.print(", N,"); // command line
+    Serial.print(skystone_arm.n);
+    Serial.print(", CMD,");
+    Serial.print(cmd_array[skystone_arm.n][0]);
   #endif
-  
-  if (jS.pot_value < 600) {
-    path1_loop(); // motion loop
-  } else {
-    input_arm_loop();  // Manually control using input arm
+
+  switch (skystone_arm.state) {
+    case 0:
+      state_setup(skystone_arm);
+      break;
+    case 1:
+      state_setup(skystone_arm);
+      main_ang_velo = 1.0; // this is fast.  feed rate should set speed
+      commands_loop(skystone_arm,cmd_array);
+      // GET OUTPUT ANGLES FROM INPUTS
+      angles = inverse_arm_kinematics(skystone_arm.at_ptC,LEN_AB,LEN_BC,skystone_arm.at_ptF); 
+      jA.desired_angle = angles[0];
+      jB.desired_angle = angles[1];
+      jT.desired_angle = angles[2];
+      jD.desired_angle = angles[3];
+      break;
+    case 2:
+      state_setup(skystone_arm);
+      main_ang_velo = 0.2;
+      input_arm_loop();
+      break;
   }
-    
-  pot_map(jC);  // Claw
-
-  pot_map(jD); // Wrist
-  jD.desired_angle = jD.pot_angle;
-
-  // GET SERVO Pulse width VALUES FROM ROBOT ARM OUTPUT ANGLE
+ 
+  // GET SERVO Pulse width VALUES FROM ARM OUTPUT ANGLE
   servo_map_with_limits(jA, main_ang_velo);
   servo_map_with_limits(jB, main_ang_velo);  
   servo_map(jC); 
   servo_map(jD);  // full speed on servo wrist...
-  
-  // Turntable 
   servo_map_with_limits(jT, main_ang_velo/1.20); 
-
-  // No S servo attached
-  //servo_map_with_limits(jS,main_ang_velo); 
 
   #if A_ON
     pwm.writeMicroseconds(jA.svo.digital_pin, jA.servo_ms); // Adafruit servo library
@@ -401,6 +208,12 @@ void loop() {
   #endif
 
   #if SERIALOUT
+    Serial.print(", Cx,");
+    Serial.print(skystone_arm.at_ptC[0]);
+    Serial.print(" ,Cy,");
+    Serial.print(skystone_arm.at_ptC[1]);
+    Serial.print(" ,Cz,");
+    Serial.print(skystone_arm.at_ptC[2]);
     //log_data(jA,'A',false);
     //log_data(jB,'B',false);
     //log_data(jC,'C',false);
