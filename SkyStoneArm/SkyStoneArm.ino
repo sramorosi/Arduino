@@ -22,8 +22,9 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 
 #define LEN_AB 320.0     // Length of Input AB arm in mm
 #define LEN_BC 320.0     // Length of Input BC arm in mm
+#define LEN_CD 140.0
 
-float main_ang_velo = 0.08; // Angular Velocity Limit, DEGREES PER MILLISECOND
+//float main_ang_velo = 0.08; // Angular Velocity Limit, DEGREES PER MILLISECOND
 // Servos Max Velocity is about 60 deg in 0.12 sec or 460 deg/sec, or 0.46 degrees per millisecond
 // This assumes no load and full (7 V) voltage.
 
@@ -39,10 +40,27 @@ struct machine_state skystone_arm;
 
 struct joint jA,jB,jC,jD,jT,jS;
 
-static int cmd_array[][SIZE_CMD_ARRAY]={{1,100,LEN_BC-20,0,LEN_AB,0,0,0},
+static int cmd_array[][SIZE_CMD_ARRAY]={{1,300,LEN_BC-20,0,LEN_AB,0,0,0},
                            {0,3000,0,0,0,0,0,0},
-                           {1,100,LEN_BC-40,-200,LEN_AB,0,0,0},
-                           {1,50,LEN_BC,LEN_BC,LEN_AB,0,0,0}};
+                           {1,300,LEN_BC-40,-200,LEN_AB,0,0,0},
+                           {1,200,LEN_BC,LEN_BC,LEN_AB,0,0,0}};
+
+void log_data(joint jt,char jt_letter,boolean minmax) {
+  #if SERIALOUT
+    Serial.print(",");
+    Serial.print(jt_letter);
+    //Serial.print(", p_value,");
+    //Serial.print(jt.pot_value);
+    //Serial.print(", Pang,");
+    //Serial.print(jt.pot_angle,1);
+    //Serial.print(", PrevAngle,");
+    //Serial.print(jt.previous_angle,1);
+    Serial.print(", DESAngle,");
+    Serial.print(jt.desired_angle,1);
+    //Serial.print(", servo_ms,");
+    //Serial.print(jt.servo_ms);
+  #endif
+}
 
 void setup() {
   static int cmd_size = sizeof(cmd_array)/(SIZE_CMD_ARRAY*2);  // sizeof array.  2 bytes per int
@@ -108,25 +126,11 @@ void setup() {
 
   delay(10); // not sure why, but adafruit did it.
 }
-
-void input_arm_loop() {
-  // reads the pots
-  jA.pot_value = analogRead(jA.pot.analog_pin);  // read joint A
-  jB.pot_value = analogRead(jB.pot.analog_pin);  // read joint B
-  jC.pot_value = analogRead(jC.pot.analog_pin);  // read joint Claw
-  jD.pot_value = analogRead(jD.pot.analog_pin);  // read D wrist
-  jT.pot_value = analogRead(jT.pot.analog_pin);  // read the turntable
-
-  pot_map(jA);
-  pot_map(jB);
+void skystone_specific_adjust() { // specific adjustments/limits for skystone arm
   jB.desired_angle = -(jA.desired_angle + jB.pot_angle);  
   if (jB.desired_angle < -35.0) {
     jB.desired_angle = -35.0;  // limit the B joint weight from contacting base 
   } 
-  pot_map(jC);  // Claw
-  pot_map(jD); // Wrist
-  jD.desired_angle = jD.pot_angle;
-  pot_map(jT); // Turntable
   jT.desired_angle = jT.pot_angle-20.0;  // adjust zero
 }
 
@@ -134,26 +138,33 @@ void loop() {
   //########### MAIN LOOP ############
   static float *angles;
   static unsigned long mst;
+  static int old_state;
+  static line lineCD;
 
   mst = millis();
   skystone_arm.dt = mst - skystone_arm.prior_mst; // delta time
   skystone_arm.prior_mst = mst;
 
   jS.pot_value = analogRead(jS.pot.analog_pin);  // read the selector
-
   if (jS.pot_value < 600) {
     skystone_arm.state = 1;  // read command list
+    if (old_state != 1) {
+      skystone_arm.initialize = true;
+    }
   } else {
     skystone_arm.state = 2;  // Manually control using input arm
+    if (old_state != 2) {
+      skystone_arm.initialize = true;
+    }
   }
+  old_state = skystone_arm.state;
+  state_setup(skystone_arm);  // check if state changed at t   
  
   #if SERIALOUT
     // output for debugging
     // Serial.print(val,digits)
     Serial.print("mst,");
     Serial.print(mst);
-    Serial.print(",S,");
-    Serial.print(jS.pot_value);
     Serial.print(", STATE,");
     Serial.print(skystone_arm.state);
     Serial.print(", N,"); // command line
@@ -163,33 +174,44 @@ void loop() {
   #endif
 
   switch (skystone_arm.state) {
-    case 0:
-      state_setup(skystone_arm);
+    case 0:  // DO NOTHING STATE
       break;
-    case 1:
-      state_setup(skystone_arm);
-      main_ang_velo = 1.0; // this is fast.  feed rate should set speed
+    case 1: // COMMAND CONTROL
+      //main_ang_velo = 1.0; // this is fast.  feed rate should set speed
       commands_loop(skystone_arm,cmd_array);
       // GET OUTPUT ANGLES FROM INPUTS
-      angles = inverse_arm_kinematics(skystone_arm.at_ptC,LEN_AB,LEN_BC,skystone_arm.at_ptF); 
+      angles = inverse_arm_kinematics(skystone_arm.at_ptC,LEN_AB,LEN_BC,skystone_arm.at_ptD); 
       jA.desired_angle = angles[0];
       jB.desired_angle = angles[1];
       jT.desired_angle = angles[2];
       jD.desired_angle = angles[3];
       break;
-    case 2:
-      state_setup(skystone_arm);
-      main_ang_velo = 0.2;
-      input_arm_loop();
+    case 2:  // MANUAL INPUT ARM CONTROL
+     // main_ang_velo = 0.2;
+      jA.pot_value = analogRead(jA.pot.analog_pin);  // read joint A
+      jB.pot_value = analogRead(jB.pot.analog_pin);  // read joint B
+      jC.pot_value = analogRead(jC.pot.analog_pin);  // read joint Claw
+      jD.pot_value = analogRead(jD.pot.analog_pin);  // read D wrist
+      jT.pot_value = analogRead(jT.pot.analog_pin);  // read the turntable
+    
+      pot_map(jA);
+      pot_map(jB);
+      pot_map(jC);  // Claw
+      pot_map(jD); // Wrist
+      pot_map(jT); // Turntable
+
+      lineCD = forward_arm_kinematics(jA.pot_angle/RADIAN,jB.pot_angle/RADIAN,jD.pot_angle/RADIAN,jT.pot_angle/RADIAN, LEN_AB, LEN_BC, LEN_CD);
+      input_arm_loop(skystone_arm, lineCD, 300);
+      skystone_specific_adjust();
       break;
   }
  
   // GET SERVO Pulse width VALUES FROM ARM OUTPUT ANGLE
-  servo_map_with_limits(jA, main_ang_velo);
-  servo_map_with_limits(jB, main_ang_velo);  
+  servo_map(jA);
+  servo_map(jB);  
   servo_map(jC); 
-  servo_map(jD);  // full speed on servo wrist...
-  servo_map_with_limits(jT, main_ang_velo/1.20); 
+  servo_map(jD); 
+  servo_map(jT); 
 
   #if A_ON
     pwm.writeMicroseconds(jA.svo.digital_pin, jA.servo_ms); // Adafruit servo library
@@ -209,18 +231,17 @@ void loop() {
 
   #if SERIALOUT
     Serial.print(", Cx,");
-    Serial.print(skystone_arm.at_ptC[0]);
+    Serial.print(skystone_arm.at_ptC.x);
     Serial.print(" ,Cy,");
-    Serial.print(skystone_arm.at_ptC[1]);
+    Serial.print(skystone_arm.at_ptC.y);
     Serial.print(" ,Cz,");
-    Serial.print(skystone_arm.at_ptC[2]);
-    //log_data(jA,'A',false);
-    //log_data(jB,'B',false);
-    //log_data(jC,'C',false);
-    //log_data(jD,'D',false);
-    //log_data(jT,'T',false);
-    //log_pot(jT);
-    //log_data(jS,'S',false);
+    Serial.print(skystone_arm.at_ptC.z);
+    log_data(jA,'A');
+    log_data(jB,'B');
+    //log_data(jC,'C');
+    log_data(jD,'D');
+    log_data(jT,'T');
+    //log_data(jS,'S');
     Serial.println(", END");
   #endif
 }

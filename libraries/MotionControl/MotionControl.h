@@ -7,6 +7,10 @@
  */
 #define RADIAN 57.2957795  // number of degrees in one radian
 
+struct point {float x,y,z;}; 
+
+struct line {struct point p1 , p2; };
+
 struct machine_state {
   int state; // 0=TBD,1=code_array,2=manual: CHANGED BY S POT
   boolean initialize; // =true if one needs to initialize state
@@ -15,10 +19,8 @@ struct machine_state {
   unsigned long prior_mst; // clock time (microseconds) prior loop 
   unsigned long dt; // delta loop time in ms
   float dist;
-  float fr_ptC[3]; // from C point 
-  float at_ptC[3]; // at (current) C point 
-  float fr_ptF[3]; // from Focal point 
-  float at_ptF[3]; // at (current) Focal point 
+  point at_ptC; // current C point 
+  point at_ptD; // current D point 
 };
 
 #define SIZE_CMD_ARRAY 8  // NUMBER OF VALUES PER COMMAND
@@ -34,12 +36,14 @@ struct machine_state {
  *  array     = {{code,feed rate/delay, Cx-to, Cy-to, Cz-to, Fx-to, Fy-to, Fz-to},{},{}};
  *  loc in array ={  0,   1           , 2, 3, 4, 5   ,  6  ,  7  } 
  */
-/* 
- *  Example of a command array and getting the size
+/*  Example of a command array and getting the size
 static int cmd_array[][SIZE_CMD_ARRAY]={{1,100,300,0,250,0,0,0},
                            {0,3000,0,0,0,0,0,0},
                            {1,100,200,-200,250,0,0,0},
                            {1,50,300,300,200,0,0,0}};
+ */
+ /*
+ *  STRUCTURES FOR SERVOS, POTENTIOMETERS, AND JOINTS
  */
 struct potentiometer {
   int analog_pin; // Arduino analog pin number (0 - 5)
@@ -76,6 +80,40 @@ struct joint {
   //float previous_velo;  // previous velocity, used to find acceleration
 };
 
+// SETTERS,  INITIALIZERS
+potentiometer set_pot(int pin, int lowmv, int lowang, int highmv, int highang) {
+  // set_pot(pin,lowmv,lowang,highmv,highang)
+  // Note: low and high values do not need to be  at the extreems
+  struct potentiometer pot;
+  pot.analog_pin = pin;
+  pot.low_mv = lowmv;
+  pot.low_ang = lowang;
+  pot.high_mv = highmv;
+  pot.high_ang = highang;
+  return pot;
+}
+
+arm_servo set_servo(int pin, float lowang, int lowms, float highang, int highms) {
+  // set_servo(pin,lowang,lowms,highang,highmv)
+  // Note: low and high values do not need to be  at the extreems
+  struct arm_servo svo;
+  svo.digital_pin = pin;
+  svo.low_ang = lowang;
+  svo.low_ms = lowms;
+  svo.high_ang = highang;
+  svo.high_ms = highms;
+  return svo;
+}
+
+void set_joint(joint & jt, float initial_angle) {
+  // Converts initial_angle to Servo Microseconds
+  jt.pot_value = 500;  // middle ish
+  jt.desired_angle = initial_angle;
+  jt.previous_angle = initial_angle;
+  jt.servo_ms = map(initial_angle,jt.svo.low_ang,jt.svo.high_ang,jt.svo.low_ms,jt.svo.high_ms);
+  jt.previous_millis = millis();
+}
+
 machine_state setup_ms(float xC, float yC, float zC, int cmd_size) { // starting point C on arm
   struct machine_state ms;
   ms.state = 0;
@@ -83,29 +121,133 @@ machine_state setup_ms(float xC, float yC, float zC, int cmd_size) { // starting
   ms.n = 0;  // first command
   ms.cmd_size = cmd_size;
   ms.prior_mst = millis();
-  ms.fr_ptC[0] = xC;
-  ms.fr_ptC[1] = yC;
-  ms.fr_ptC[2] = zC;
-  ms.at_ptC[0] = xC;
-  ms.at_ptC[1] = yC;
-  ms.at_ptC[2] = zC;
-  
-  ms.fr_ptF[0] = xC+1000.0;
-  ms.fr_ptF[1] = yC;
-  ms.fr_ptF[2] = zC;
-  ms.at_ptF[0] = xC+1000.0;
-  ms.at_ptF[1] = yC;
-  ms.at_ptF[2] = zC;
+  ms.at_ptC.x = xC;  ms.at_ptC.y = yC;  ms.at_ptC.z = zC;
+  ms.at_ptD.x = xC+1000.0;  ms.at_ptD.y = yC;  ms.at_ptD.z = zC;
   return ms;
 }
 
-float rot_x(float x, float y, float a) {
-  return x*cos(a)-y*sin(a);
+point rot_pt_y(point p1, float a) { // Rotate p1 about Y axis by a radians
+  static point p2;
+  p2.x = p1.x*cos(a)-p1.z*sin(a);
+  p2.y = p1.y;
+  p2.z = p1.x*sin(a)+p1.z*cos(a);
+  return p2;
 }
 
-float rot_y(float x, float y, float a) {
-  return x*sin(a)+y*cos(a);
+point rot_pt_z(point p1, float a) { // Rotate p1 about Z axis by a radians
+  point p2;
+  p2.x = p1.x*cos(a)-p1.y*sin(a);
+  p2.y = p1.x*sin(a)+p1.y*cos(a);
+  p2.z = p1.z;
+  return p2;
 }
+
+point add_pts(point p1, point p2) {
+  static point p3;
+  p3.x = p1.x+p2.x;   p3.y = p1.y+p2.y;   p3.z = p1.z+p2.z;
+  return p3;
+}
+float ptpt_dist(point p1, point p2) {
+  static float dist;
+  dist = sqrt(pow(p1.x-p2.x,2.0)+pow(p1.y-p2.y,2.0)+pow(p1.z-p2.z,2.0) ); 
+  return dist;
+}
+point pt_on_line(float s, float dist, point p1, point p2) { // point along line s from p1
+  static point new_pt;
+  static float ratio;
+  ratio = s / dist; 
+  new_pt.x = ratio*(p2.x-p1.x) + p1.x;
+  new_pt.y = ratio*(p2.y-p1.y) + p1.y;
+  new_pt.z = ratio*(p2.z-p1.z) + p1.z;
+  return new_pt;
+}
+float * inverse_arm_kinematics(point c, float l_ab, float l_bc, point d) {
+  // Given arm system GroundT-TA-AB-BC-CD, where T (turntable) and A are [0,0,0]
+  // The location of joint C (c[])
+  // The location of D (focal point) (where the claw should point)
+  // The lengths Length AB (l_ab) and Length BC (l_bc) are specified
+  // The joints A,B are on a turntable with rotation T parallel to Z through A
+  // With T_angle = 0, then joints A & B are parallel to the Y axis
+  // calculate the angles given pt C ***Inverse Kinematics***
+  // returns an array with [A_angle,B_angle,T_angle,D_angle] 
+  
+  float xy_len, c_len, sub_angle1, sub_angle2;
+  static float t_limit = 120.0 / RADIAN;  // Turntable limits, should be an argument??
+  static float angles[4] = {0.0,0.0,0.0,0.0};  // [ A , B , T , D]
+  static point c_new;
+  
+  // compute the turntable angle
+  xy_len = sqrt(pow(c.x,2.0)+pow(c.y,2.0)); 
+  if (xy_len > 0) {  
+    angles[2] = atan2(c.y,c.x);  // note: atan2 order; y,x
+  } else {
+    if (c.z == 0.0) {
+      // case where c = [0,0,0]. don't know how to compute.
+      return angles; 
+    } else { // the robot arm could is pointing along the z axis
+      angles[2] = 0.0; // turntable = 0
+    }
+  }
+
+  // compute the D angle based on where C and D are on the xy plane
+  xy_len = sqrt(pow((d.x-c.x),2.0)+pow((d.y-c.y),2.0)); 
+  if (xy_len > 0) {  
+    angles[3] = atan2((d.y-c.y),(d.x-c.x));  //  y,x
+  } else {
+    angles[3] = 0.0; 
+  }
+
+  c_new = rot_pt_z(c,-angles[2]); // rotate the point c onto the XZ plane using turntable angle
+  c_len = sqrt(pow(c_new.x,2)+pow(c_new.z,2));   // XZ plane
+
+  if (c_len < l_ab+l_bc) {
+    // case where robot arm can reach
+    sub_angle1 = atan2(c_new.z,c_new.x);
+    sub_angle2 = acos((pow(c_len,2)+pow(l_ab,2)-pow(l_bc,2))/(2*c_len*l_ab));
+    angles[0] = sub_angle1 + sub_angle2;
+    angles[1] = acos((pow(l_bc,2)+pow(l_ab,2)-pow(c_len,2))/(2*l_bc*l_ab))-180.0/RADIAN;
+  } else {
+    // case where robot arm can not reach point... 
+    angles[0] = atan2(c_new.z,c_new.x); // a angle point in direction to go
+    angles[1] = 0.0; // b is straight
+  }
+  
+  // limit the turntable range, so as not to break things
+  if (angles[2] > t_limit) {
+    angles[2] = t_limit;
+  } else if (angles[2] < -t_limit) {
+    angles[2] = -t_limit;
+  }
+
+  return angles;  // return the angles
+}
+line forward_arm_kinematics(float a, float b, float d, float t, float l_ab, float l_bc, float l_cd){
+  // Start at the D end of the arm, and apply translations and rotations to get the final points
+  //   assume that angle c is the claw, and is not relavent here
+  //   assume that angle d (wrist) rotates part cd about the Z axis through c
+  static line lineCD;  // [Cx, Cy, Cz,  Dx, Dy, Dz]
+  static point pB,pC,pD;
+  static point pC2, pC3, pD2, pD3;  // temporary points for calculations 
+  
+  pD.x = l_cd;   pD.y = 0.0;  pD.z = 0.0;
+  pC.x = l_bc;   pC.y = 0.0;  pC.z = 0.0;
+  pB.x = l_ab;   pB.y = 0.0;  pB.z = 0.0;
+  pD2 = rot_pt_z(pD,d);
+  pD3 = add_pts(pC,pD2);
+  pD2 = rot_pt_y(pD3,b); // reuse pD2
+  pD3 = add_pts(pD2,pB);  // reuse pD3
+  pD2 = rot_pt_y(pD3,a);  // reuse pD2
+  pD3 = rot_pt_z(pD2,t);  // reuse pD3
+  
+  pC2 = rot_pt_y(pC,b);
+  pC3 = add_pts(pB,pC2);
+  pC2 = rot_pt_y(pC3,a); // reuse pC2
+  pC3 = rot_pt_z(pC2,t);  // reuse pC3
+
+  lineCD.p1 = pC3;   lineCD.p2 = pD3;
+  return lineCD;
+}
+
 /*
 float * arc_pt(float s, float rad, float rot_cent_x, float w, float h) { // rtn point on arc
   // s is normalized arc length, w is arc width (Y dir), h is Z
@@ -120,83 +262,7 @@ float * arc_pt(float s, float rad, float rot_cent_x, float w, float h) { // rtn 
   return pt;
 }
 */
-float ptpt_dist(float p1[3], float p2[3]) {
-  static float dist;
-  dist = sqrt(pow(p1[0]-p2[0],2.0)+pow(p1[1]-p2[1],2.0)+pow(p1[2]-p2[2],2.0) ); 
-  return dist;
-}
-float * pt_on_line(float s, float dist, float p1[3], float p2[3]) {
-  static float new_pt[3],ratio;
-  ratio = s / dist; 
-  new_pt[0] = ratio*(p2[0]-p1[0]) + p1[0];
-  new_pt[1] = ratio*(p2[1]-p1[1]) + p1[1];
-  new_pt[2] = ratio*(p2[2]-p1[2]) + p1[2];
-  return new_pt;
-}
-float * inverse_arm_kinematics(float c[3], float l_ab, float l_bc, float f[3]) {
-  // Given arm system GroundT-TA-AB-BC-CD, where T (turntable) and A are [0,0,0]
-  // The location of joint C (c[])
-  // The location of F (focal point) (where the claw should point)
-  // The lengths Length AB (l_ab) and Length BC (l_bc) are specified
-  // The joints A,B are on a turntable with rotation T parallel to Z through A
-  // With T_angle = 0, then joints A & B are parallel to the Y axis
-  // calculate the angles given pt C ***Inverse Kinematics***
-  // returns an array with [A_angle,B_angle,T_angle,D_angle] 
-  
-  float xy_len, c_len, sub_angle1, sub_angle2;
-  static float t_limit = 120.0 / RADIAN;  // Turntable limits, should be an argument??
-  static float angles[4] = {0.0,0.0,0.0,0.0};  // [ A , B , T , D]
-  static float c_new[3];
-  
-  // compute the turntable angle
-  xy_len = sqrt(pow(c[0],2.0)+pow(c[1],2.0)); 
-  if (xy_len > 0) {  
-    angles[2] = atan2(c[1],c[0]);  //  y,x
-  } else {
-    if (c[2] == 0.0) {
-      // case where c = [0,0,0]
-      return angles;
-    } else {
-      // the robot arm could be pointing along the z axis
-      angles[2] = 0.0; // turntable = 0
-    }
-  }
 
-  // compute the D angle based on where C and F are on the xy plane
-  xy_len = sqrt(pow((f[0]-c[0]),2.0)+pow((f[1]-c[1]),2.0)); 
-  if (xy_len > 0) {  
-    angles[3] = atan2((f[1]-c[1]),(f[0]-c[0]));  //  y,x
-  } else {
-    angles[3] = 0.0; 
-  }
-
-  // rotate the point c onto the XZ plane
-  c_new[0] = rot_x(c[0],c[1],-angles[2]);
-  c_new[1] = rot_y(c[0],c[1],-angles[2]);
-  c_new[2] = c[2];
-  c_len = sqrt(pow(c_new[0],2)+pow(c_new[2],2));   // XZ plane
-
-  if (c_len < l_ab+l_bc) {
-    // case where robot arm can reach
-    sub_angle1 = atan2(c_new[2],c_new[0]);
-    sub_angle2 = acos((pow(c_len,2)+pow(l_ab,2)-pow(l_bc,2))/(2*c_len*l_ab));
-    angles[0] = sub_angle1 + sub_angle2;
-    angles[1] = acos((pow(l_bc,2)+pow(l_ab,2)-pow(c_len,2))/(2*l_bc*l_ab))-180.0/RADIAN;
-  } else {
-    // case where robot arm can not reach point... 
-    angles[0] = atan2(c_new[2],c_new[0]);
-    angles[1] = 0.0;
-  }
-  
-  // limit the turntable range, so as not to break things
-  if (angles[2] > t_limit) {
-    angles[2] = t_limit;
-  } else if (angles[2] < -t_limit) {
-    angles[2] = -t_limit;
-  }
-
-  return angles;  // return the angles
-}
 void loop_circle() { // NOT DONE
 /*  CIRCLE TEST
 #define R_TEST 150.0   // radius of motion circle
@@ -286,101 +352,7 @@ void path1_loop() {
       }
     }
 */
-void state_setup(machine_state & machine) {
-  // This is called every loop, to check for a state change
-  if (machine.initialize) { // initialize
-    machine.n = 0; // array pointer
-    machine.dist = 0.0;  // could use a static variable?
-    machine.initialize = false;
-  }  
-}
 
-void go_to_next_cmd(machine_state & machine) {
-  machine.n += 1; // go to the next command line
-  machine.dist = 0.0;
-  if (machine.n >= machine.cmd_size) { // end of command lines, stop
-    machine.state = 0;
-    machine.initialize = true; // tell next state to initialize
-  }
-}
-
-void commands_loop(machine_state & machine, int cmds[][SIZE_CMD_ARRAY]) { 
-  static float ds, line_len, to_pt[3];
-  static float *at_pointC; // pointer to a point!
-
-  // read type of command
-  switch (cmds[machine.n][0]) {
-    case 0: // DELAY
-      delay(cmds[machine.n][1]);
-      machine.prior_mst = millis();
-      go_to_next_cmd(machine);
-      break;
-    case 1: // line move
-      ds = cmds[machine.n][1] * (machine.dt/1000.0); // feed rate (mm/sec)*sec = mm
-      if (machine.dist == 0.0) { // initialize line
-        to_pt[0] = cmds[machine.n][2];
-        to_pt[1] = cmds[machine.n][3];
-        to_pt[2] = cmds[machine.n][4];
-        line_len = ptpt_dist(machine.fr_ptC,to_pt);
-        at_pointC = pt_on_line(machine.dist,line_len, machine.fr_ptC,to_pt);
-        machine.dist += ds;
-      } else {  // moving
-          if (machine.dist <= line_len) {  // move along line 
-            at_pointC = pt_on_line(machine.dist,line_len, machine.fr_ptC,to_pt);
-            machine.dist += ds;
-          } else {  // reached end point
-            machine.fr_ptC[0] = to_pt[0];
-            machine.fr_ptC[1] = to_pt[1];
-            machine.fr_ptC[2] = to_pt[2];
-            go_to_next_cmd(machine);
-          }
-       }
-       machine.at_ptC[0] = at_pointC[0];
-       machine.at_ptC[1] = at_pointC[1];
-       machine.at_ptC[2] = at_pointC[2];
-       break;
-     case 2: // TBD
-       break;
-  } // end switch
-}
-
-/*
- *  STRUCTURES FOR SERVOS, POTENTIOMETERS, AND JOINTS
- */
-
-
-potentiometer set_pot(int pin, int lowmv, int lowang, int highmv, int highang) {
-  // set_pot(pin,lowmv,lowang,highmv,highang)
-  // Note: low and high values do not need to be  at the extreems
-  struct potentiometer pot;
-  pot.analog_pin = pin;
-  pot.low_mv = lowmv;
-  pot.low_ang = lowang;
-  pot.high_mv = highmv;
-  pot.high_ang = highang;
-  return pot;
-}
-
-arm_servo set_servo(int pin, float lowang, int lowms, float highang, int highms) {
-  // set_servo(pin,lowang,lowms,highang,highmv)
-  // Note: low and high values do not need to be  at the extreems
-  struct arm_servo svo;
-  svo.digital_pin = pin;
-  svo.low_ang = lowang;
-  svo.low_ms = lowms;
-  svo.high_ang = highang;
-  svo.high_ms = highms;
-  return svo;
-}
-  
-void set_joint(joint & jt, float initial_angle) {
-  // Converts initial_angle to Servo Microseconds
-  jt.pot_value = 500;  // middle ish
-  jt.desired_angle = initial_angle;
-  jt.previous_angle = initial_angle;
-  jt.servo_ms = map(initial_angle,jt.svo.low_ang,jt.svo.high_ang,jt.svo.low_ms,jt.svo.high_ms);
-  jt.previous_millis = millis();
-}
 
 void pot_map(joint & jt) {
   // Map a potentiometer value in millivolts to an angle
@@ -397,7 +369,7 @@ void servo_map(joint & jt) {
   // Map joint angle to the servo microsecond value
   jt.servo_ms = map(jt.desired_angle, jt.svo.low_ang, jt.svo.high_ang, jt.svo.low_ms, jt.svo.high_ms);
 }
-
+/*
 void servo_map_with_limits(joint & jt, float rate) {
 // SERVO Map With RATE LIMITING, for smooth operation and to prevent damage
 // Limit how much a servo angle can change in a unit time
@@ -421,40 +393,113 @@ void servo_map_with_limits(joint & jt, float rate) {
   jt.servo_ms = map(jt.previous_angle, jt.svo.low_ang, jt.svo.high_ang, jt.svo.low_ms, jt.svo.high_ms);
  
   jt.previous_millis = millis();
+} */
+
+void go_to_next_cmd(machine_state & machine) {
+  machine.n += 1; // go to the next command line
+  machine.dist = 0.0;
+  if (machine.n >= machine.cmd_size) { // end of command lines, stop
+    machine.n = 9999; // signals end of commands
+  }
 }
 
-void log_data(joint jt,char jt_letter,boolean minmax) {
-  #if SERIALOUT
-    Serial.print(",");
-    Serial.print(jt_letter);
-    Serial.print(", p_value,");
-    Serial.print(jt.pot_value);
-    Serial.print(", Pang,");
-    Serial.print(jt.pot_angle,1);
-    //Serial.print(", PrevAngle,");
-    //Serial.print(jt.previous_angle,1);
-    Serial.print(", DESAngle,");
-    Serial.print(jt.desired_angle,1);
-    Serial.print(", servo_ms,");
-    Serial.print(jt.servo_ms);
-  #endif
+void commands_loop(machine_state & machine, int cmds[][SIZE_CMD_ARRAY]) { 
+  static float ds, line_len;
+  static point to_pt,from_ptC; 
+
+  // read type of command
+  if (machine.n != 9999) {
+    switch (cmds[machine.n][0]) {
+      case 0: // DELAY
+        delay(cmds[machine.n][1]);
+        machine.prior_mst = millis();
+        go_to_next_cmd(machine);
+        break;
+      case 1: // line move
+        ds = cmds[machine.n][1] * (machine.dt/1000.0); // feed rate (mm/sec)*sec = mm
+        if (machine.dist == 0.0) { // initialize line
+          to_pt.x = cmds[machine.n][2];
+          to_pt.y = cmds[machine.n][3];
+          to_pt.z = cmds[machine.n][4];
+          line_len = ptpt_dist(machine.at_ptC,to_pt);
+          from_ptC = machine.at_ptC;
+          machine.dist += ds;
+        } else {  // moving
+            if (machine.dist <= line_len) {  // move along line 
+              machine.at_ptC = pt_on_line(machine.dist,line_len, from_ptC,to_pt);
+              machine.dist += ds;
+            } else {  // reached end point
+              machine.at_ptC = to_pt;
+              go_to_next_cmd(machine);
+            }
+         }
+         break;
+       case 2: // TBD
+         break;
+    } // end switch   
+  }
 }
 
+void input_arm_loop(machine_state & machine, line to_CD, int mmps) {
+  static float line_len;
+  static point partC, partD;
+  machine.dist = mmps * (machine.dt/1000.0); // feed rate (mm/sec)*sec = mm
+  // convert input arm angles to desired c & d point
+  // 
+  line_len = ptpt_dist(machine.at_ptC,to_CD.p1);
+  if (machine.dist < line_len) { // PARTIAL MOVE
+    partC = pt_on_line(machine.dist,line_len, machine.at_ptC,to_CD.p1);
+    partD = pt_on_line(machine.dist,line_len, machine.at_ptD,to_CD.p2);
+    machine.at_ptC = partC;
+    machine.at_ptD = partD;
+  } else { // FULL MOVE
+    machine.at_ptC = to_CD.p1;
+    machine.at_ptD = to_CD.p2;
+  }
+}
+
+void log_data(joint jt,char jt_letter) {
+  Serial.print(",");
+  Serial.print(jt_letter);
+//  Serial.print(", p_value,");
+//  Serial.print(jt.pot_value);
+//  Serial.print(", Pang,");
+//  Serial.print(jt.pot_angle,1);
+//  Serial.print(", PrevAngle,");
+  //Serial.print(jt.previous_angle,1);
+  Serial.print(", dsr_ang,");
+  Serial.print(jt.desired_angle,1);
+//  Serial.print(", servo_ms,");
+//  Serial.print(jt.servo_ms);
+}
+
+void state_setup(machine_state & machine) {
+  // This is called every loop, to check for a state change
+  if (machine.initialize) { // initialize
+    machine.n = 0; // array pointer
+    machine.dist = 0.0;  // could use a static variable?
+    machine.initialize = false;
+  }  
+}
 
 //  COMMENT OUT BELOW HERE WHEN SAVING AS AN INCLUDE (.h) FILE
 /*
 #define LEN_AB 195.0     // Length of Input AB arm in mm
 #define LEN_BC 240.0     // Length of Input BC arm in mm
+#define LEN_CD 140.0
 
 struct machine_state test_machine; 
+struct joint jA,jB,jC,jD,jT,jS;
 
-static int cmd_array[][SIZE_CMD_ARRAY]={{1,100,LEN_BC-20,0,LEN_AB,0,0,0},
+static int cmd_array[][SIZE_CMD_ARRAY]={{1,400,LEN_BC-20,0,LEN_AB,0,0,0},
                            {0,3000,0,0,0,0,0,0},
-                           {1,100,LEN_BC-40,-200,LEN_AB,0,0,0},
-                           {1,50,LEN_BC,LEN_BC,LEN_AB,0,0,0}};
+                           {1,400,LEN_BC-40,-200,LEN_AB,0,0,0},
+                           {1,400,LEN_BC,LEN_BC,LEN_AB,0,0,0}};
 
 void setup() {
   static int cmd_size = sizeof(cmd_array)/(SIZE_CMD_ARRAY*2);  // sizeof array.  2 bytes per int
+//  static line line1;
+//  line1 = forward_arm_kinematics(0/RADIAN, 0/RADIAN, 0/RADIAN, 75/RADIAN, LEN_AB, LEN_BC, LEN_CD);
   // put your setup code here, to run once:
   Serial.begin(9600); // baud rate, slower is easier to read
   while (!Serial) {
@@ -464,19 +509,50 @@ void setup() {
   test_machine.state = 1; 
   Serial.print("cmd_size,");
   Serial.println(cmd_size);
+//  Serial.println(line1.p1.x,1);
+//  Serial.println(line1.p1.y,1);
+//  Serial.println(line1.p1.z,1);
+//  Serial.println(line1.p2.x,1);
+//  Serial.println(line1.p2.y,1);
+//  Serial.println(line1.p2.z,1); 
+  // TUNE POT LOW AND HIGH VALUES
+  // set_pot(pin,lowmv,lowang,highmv,highang)
+  jA.pot = set_pot(0 ,134,  0, 895, 178); 
+  jB.pot = set_pot(1 ,500,-90, 908,  0); 
+  jC.pot = set_pot(3 , 116,-90, 903, 90); 
+  jD.pot = set_pot(2 ,250, 60, 747, -60); 
+  jT.pot = set_pot(4 ,160, -90, 510, 0); 
+  jS.pot = set_pot(5 , 0, 0, 1023, 280);  // to tune
 
   delay(10); // not sure why, but adafruit did it.
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
+  static int old_state = 2;
   static float *angles;
   static unsigned long mst;
+  static line lineCD;
 
   mst = millis();
   test_machine.dt = mst - test_machine.prior_mst; // delta time
   test_machine.prior_mst = mst;
   
+  jS.pot_value = analogRead(jS.pot.analog_pin);  // read the selector
+  if (jS.pot_value < 600) {
+    test_machine.state = 1;  // read command list
+    if (old_state != 1) {
+      test_machine.initialize = true;
+    }
+  } else {
+    test_machine.state = 2;  // Manually control using input arm
+    if (old_state != 2) {
+      test_machine.initialize = true;
+    }
+  }
+  old_state = test_machine.state;
+  state_setup(test_machine);  // check if state changed at t   
+
   Serial.print("ms,");
   Serial.print(mst);
   Serial.print(", STATE,");
@@ -486,39 +562,47 @@ void loop() {
   Serial.print(", CMD,");
   Serial.print(cmd_array[test_machine.n][0]);
 
-  // GET INPUTS depending on state
-  switch (test_machine.state) {
-    case 0:
-      state_setup(test_machine);
+   switch (test_machine.state) {
+    case 0:  // DO NOTHING STATE
       break;
-    case 1:
-      state_setup(test_machine);
+    case 1: // COMMAND CONTROL
       commands_loop(test_machine,cmd_array);
+      // GET OUTPUT ANGLES FROM INPUTS
+      angles = inverse_arm_kinematics(test_machine.at_ptC,LEN_AB,LEN_BC,test_machine.at_ptD); 
       break;
-    case 2:
-      state_setup(test_machine);
-      //loop_circle();
+    case 2:  // MANUAL CONTROL
+      jA.pot_value = analogRead(jA.pot.analog_pin);  // read joint A
+      jB.pot_value = analogRead(jB.pot.analog_pin);  // read joint B
+      jC.pot_value = analogRead(jC.pot.analog_pin);  // read joint Claw
+      jD.pot_value = analogRead(jD.pot.analog_pin);  // read D wrist
+      jT.pot_value = analogRead(jT.pot.analog_pin);  // read the turntable
+    
+      pot_map(jA);
+      pot_map(jB);
+      pot_map(jC);  // Claw
+      pot_map(jD); // Wrist
+      pot_map(jT); // Turntable
+      lineCD = forward_arm_kinematics(jA.pot_angle/RADIAN,jB.pot_angle/RADIAN,jD.pot_angle/RADIAN,jT.pot_angle/RADIAN, LEN_AB, LEN_BC, LEN_CD);
+
+      input_arm_loop(test_machine, lineCD, 300);  // limit movement to 100 mm per second
       break;
   }
-  // GET OUTPUT ANGLES FROM INPUTS
-  angles = inverse_arm_kinematics(test_machine.at_ptC,LEN_AB,LEN_BC,test_machine.at_ptF); 
   
   // ADD CODE HERE TO DRIVE SERVOS
 
   Serial.print(", Cx,");
-  Serial.print(test_machine.at_ptC[0]);
+  Serial.print(test_machine.at_ptC.x);
   Serial.print(" ,Cy,");
-  Serial.print(test_machine.at_ptC[1]);
+  Serial.print(test_machine.at_ptC.y);
   Serial.print(" ,Cz,");
-  Serial.print(test_machine.at_ptC[2]);
-  Serial.print(" ,A,");
-  Serial.print(angles[0]*RADIAN);
-  Serial.print(" ,B,");
-  Serial.print(angles[1]*RADIAN);
-  Serial.print(" ,T,");
-  Serial.print(angles[2]*RADIAN);
-  Serial.print(" ,D,");
-  Serial.print(angles[3]*RADIAN);
+  Serial.print(test_machine.at_ptC.z);
+
+  log_data(jA,'A');
+  log_data(jB,'B');
+  //log_data(jC,'C');
+  log_data(jD,'D');
+  log_data(jT,'T');
+  //log_data(jS,'S');
   Serial.println(", END");
 }
 */
