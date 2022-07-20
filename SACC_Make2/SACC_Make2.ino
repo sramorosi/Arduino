@@ -14,140 +14,110 @@
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 #define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
 
-#define SERIALOUT false  // Controlls SERIAL output. Turn on when debugging. 
-// SERIAL OUTPUT AFFECTS SMOOTHNESS OF SERVO PERFORMANCE 
-//  WITH SERIAL true AND LOW 9600 BAUD RATE = JERKY PERFORMANCE
-//  WITH false OR HIGH 500000 BAUD RATE = SMOOTH PERFORMANCE
+#define SERIALOUT true  // Controlls SERIAL output. Set true when debugging. 
 
-#define LEN_AB 195.0     // Length of Input AB arm in mm
-#define LEN_BC 240.0     // Length of Input BC arm in mm
-#define R 120.0   // radius of motion orbit
-#define XC 200.0  // X offset of the motion orbit
+#define LEN_AB 195.0     // SACC MK2 AB arm in mm
+#define LEN_BC 240.0     // SACC MK2 BC arm in mm
+#define LEN_CD 120.0
 
-float main_ang_velo = 0.07; // Angular Velocity Limit, DEGREES PER MILLISECOND (~20 is full speed)
-// Servos Max Velocity is about 60 deg in 0.12 sec or 460 deg/sec, or 0.46 degrees per millisecond
-// This assumes no load and full (7 V) voltage.
-
-// Booleans to turn on Servos. [bad code can damage servos. This can help isolate]
-#define A_ON true
-#define B_ON true
-#define C_ON true
-#define D_ON true
-#define T_ON true
+// Booleans to turn on Servos. [bad code can damage servos. Use to isolate problems]
+#define A_ON false
+#define B_ON false
+#define C_ON false
+#define D_ON false
+#define T_ON false
 #define S_ON false
 
-boolean path1_init,path2_init, hold_init, input_arm_init;
+static struct machine_state sacc_arm; 
 
-struct potentiometer {
-  int analog_pin; // Arduino analog pin number (0 - 5)
-  int low_mv; // low voltage point, from 0 (0 Volts) to 1023 (5 Volts)
-  int low_ang; // corresponding angle at low voltage
-  int high_mv; // high voltage point, from 0 (0 Volts) to 1023 (5 Volts)
-  int high_ang; // corresponding angle at high voltage
-  // Note: low and high values do not need to be  at the extreems
-  //  Tip:  Pick low and high angles that are easy to read/set/measure
-  //      Values outside of the low and high will be extrapolated
-};
+static struct joint jA,jB,jC,jD,jT,jS;
 
-struct arm_servo {
-  // Values are pulse width in microseconds (~400 to ~2400--SERVOS SHOULT BE TESTED)
-  // 270 deg servo, gets 290 deg motion with 400 to 2500 microsecond range
-  // 180 deg servo, gets 160 deg motion with 500 to 2800 microsecond range
-  // 180 deg SAVOX, gets 170 deg motion with 500 to 2800 microsecond range
-  //int digital_pin; // Arduino digital pin number
-  uint8_t digital_pin; // Adafruit digital pin number
-  int low_ms; // low microsecond point, from about 500 to 2400
-  float low_ang; // corresponding angle at low microsecond
-  int high_ms; // high microsecond point, from about 500 to 2400
-  float high_ang; // corresponding angle at high microsecond
-  // Note: low and high values do not need to be  at the extreems
-  //  Tip:  Pick low and high angles that are easy to read/set/measure
-  //      Values outside of the low and high will be extrapolated  
-}; 
+#define MMPS 200 // mm per second
+#define X_PP 250 // x mm for pick and place
+#define Y_MV 150 // y swing in mm
+#define FLOORH -80 // z of floor for picking
+#define BLOCKH 51 // block height mm of 2 inch block
 
-struct joint {
-  potentiometer pot; // Sub structure which contains static pot information
-  arm_servo svo; // Sub structure which contains the static servo information
-  int pot_value;  // current potentiometer value in millivolts 
-  float pot_angle; // Potentiometer arm angle, if used
-  //int pot_min;  // used for tuning the pot
-  //int pot_max;  // used for tuning the pot
-  unsigned long previous_millis; // used to find servo rate of change
-  float previous_angle;  // used with rate limiting
-  float desired_angle;  // angle from input device or array
-  int servo_ms;   // servo command in microseconds
-  //float previous_velo;  // previous velocity, used to find acceleration
-};
-struct joint jA,jB,jC,jD,jT,jS;
+static int cmd_array[][SIZE_CMD_ARRAY]={{1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,  X_PP,1000,0}, // ready block 1
+                           {0,2000,45,0,0,0,0,0}, // pause to pick block 1 - UNIQUE IN SEQUENCE
+                           {1,MMPS, X_PP,Y_MV,FLOORH,             X_PP,1000,0}, // down to block 2
+                           {0,500,-45,0,0,0,0,0}, // pick block 1
+                           {1,MMPS, X_PP,Y_MV,FLOORH+2*BLOCKH,    1000, Y_MV,0}, // up block 1 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,   1000, -Y_MV,0}, // over block 1 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH,            1000, -Y_MV,0}, // place block 1 
+                           {0,500,45,0,0,0,0,0}, // drop block 1
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,      1000, -Y_MV,0}, // up clear block 1 
+                           
+                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,      X_PP,1000,0}, // ready block 2
+                           {1,MMPS, X_PP,Y_MV,FLOORH,             X_PP,1000,0}, // down to block 2
+                           {0,500,-45,0,0,0,0,0}, // pick block 2
+                           {1,MMPS, X_PP,Y_MV,FLOORH+3*BLOCKH,    1000, Y_MV,0}, // up block 2 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+3*BLOCKH,    1000, -Y_MV,0}, // over block 2 
+                           {1,MMPS/2, X_PP,-Y_MV,FLOORH+1*BLOCKH,  1000, -Y_MV,0}, // place block 2 
+                           {0,500,45,0,0,0,0,0}, // drop block 2
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+3*BLOCKH,    1000, -Y_MV,0}, // up clear block 2 
+                           
+                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       X_PP,1000,0},  // ready block 3
+                           {1,MMPS, X_PP,Y_MV,FLOORH,              X_PP,1000,0}, // down to block 2
+                           {0,500,-45,0,0,0,0,0}, // pick  block 3
+                           {1,MMPS, X_PP,Y_MV,FLOORH+4*BLOCKH,    1000, Y_MV,0}, // up block 3 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+4*BLOCKH,    1000, -Y_MV,0}, // over block 3 
+                           {1,MMPS/2, X_PP,-Y_MV,FLOORH+2*BLOCKH,  1000, -Y_MV,0}, // place block 3 
+                           {0,500,45,0,0,0,0,0}, // drop block 3
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+4*BLOCKH,    1000, -Y_MV,0}, // up clear block 3 
+                           
+                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       X_PP,1000,0},  // ready block 4
+                           {1,MMPS, X_PP,Y_MV,FLOORH,              X_PP,1000,0},  // pick block 4
+                           {0,500,-45,0,0,0,0,0}, // pick  block 4
+                           {1,MMPS, X_PP,Y_MV,FLOORH+5*BLOCKH,    1000, Y_MV,0}, // up block 4 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+5*BLOCKH,    1000, -Y_MV,0}, // over block 4 
+                           {1,MMPS/2, X_PP,-Y_MV,FLOORH+3*BLOCKH,  1000, -Y_MV,0}, // place block 4
+                           {0,500,45,0,0,0,0,0}, // drop block 4
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+5*BLOCKH,    1000, -Y_MV,0}, // up clear block 4 
+                           
+                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       X_PP,1000,0},  // pick block 5
+                           {1,MMPS, X_PP,Y_MV,FLOORH,              X_PP,1000,0},  // pick block 5
+                           {0,500,-45,0,0,0,0,0}, // pick  block 5
+                           {1,MMPS, X_PP,Y_MV,FLOORH+6*BLOCKH,    1000, Y_MV,0}, // up block 5 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+6*BLOCKH,    1000, -Y_MV,0}, // over block 5 
+                           {1,MMPS/2, X_PP,-Y_MV,FLOORH+4*BLOCKH,  1000, -Y_MV,0}, // place block 5
+                           {0,500,45,0,0,0,0,0}, // drop block 5
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+6*BLOCKH,    1000, -Y_MV,0}}; // up clear block 5 
 
-unsigned long millisTime;
-
-potentiometer set_pot(int pin, int lowmv, int lowang, int highmv, int highang) {
-  // set_pot(pin,lowmv,lowang,highmv,highang)
-  // Note: low and high values do not need to be  at the extreems
-  struct potentiometer pot;
-  pot.analog_pin = pin;
-  pot.low_mv = lowmv;
-  pot.low_ang = lowang;
-  pot.high_mv = highmv;
-  pot.high_ang = highang;
-  return pot;
-}
-
-arm_servo set_servo(int pin, float lowang, int lowms, float highang, int highms) {
-  // set_servo(pin,lowang,lowms,highang,highmv)
-  // Note: low and high values do not need to be  at the extreems
-  struct arm_servo svo;
-  svo.digital_pin = pin;
-  svo.low_ang = lowang;
-  svo.low_ms = lowms;
-  svo.high_ang = highang;
-  svo.high_ms = highms;
-  return svo;
-}
-  
-void set_joint(joint & jt, float initial_angle) {
-  // Converts initial_angle to Servo Microseconds
-  jt.pot_value = 500;  // middle ish
-  jt.desired_angle = initial_angle;
-  jt.previous_angle = initial_angle;
-  jt.servo_ms = map(initial_angle,jt.svo.low_ang,jt.svo.high_ang,jt.svo.low_ms,jt.svo.high_ms);
-  jt.previous_millis = millis();
-}
-
-void log_pot(joint jt) {
-    Serial.print(", pot.low_mv,");
-    Serial.print(jt.pot.low_mv);
-    Serial.print(", pot.high_mv,");
-    Serial.print(jt.pot.high_mv);
-    Serial.print(", pot.low_ang,");
-    Serial.print(jt.pot.low_ang);
-    Serial.print(", pot.high_ang,");
-    Serial.print(jt.pot.high_ang);
+void logData(joint jt,char jt_letter) {
+  Serial.print(",");
+  Serial.print(jt_letter);
+  Serial.print(", p_value,");
+  Serial.print(jt.pot_value);
+  Serial.print(", Pang,");
+  Serial.print(jt.pot_angle,1);
+//  Serial.print(", PrevAngle,");
+  //Serial.print(jt.previous_angle,1);
+//  Serial.print(",dsr_ang,");
+//  Serial.print(jt.desired_angle,1);
+//  Serial.print(", servo_ms,");
+//  Serial.print(jt.servo_ms);
 }
 
 void setup() {
+  static int cmd_size = sizeof(cmd_array)/(SIZE_CMD_ARRAY*2);  // sizeof array.  2 bytes per int
   #if SERIALOUT
     Serial.begin(9600); // baud rate, slower is easier to read
-    while (!Serial) {
+    while (!Serial) { // With Leonardo, if SERIALOUT = true then this is never true.
       ; // wait for serial port to connect. Needed for native USB port only
     } 
+    Serial.print("cmd_size,");
+    Serial.println(cmd_size);
    #endif
-
-  // Set booleans so that all Functions get Initialized
-  path1_init = true;
-  path2_init = true;
-  hold_init = true;
-  input_arm_init = true;
   
   // TUNE POT LOW AND HIGH VALUES
   // set_pot(pin,lowmv,lowang,highmv,highang)
-  jA.pot = set_pot(4 ,134,  0, 485, 90);
+  jA.pot = set_pot(1 ,160,  0, 870, 175);
   jB.pot = set_pot(5 ,131,-90, 500,  0);
-  jC.pot = set_pot(1 , 139,-90, 910, 90);
-  jD.pot = set_pot(2 ,370, 0, 700, 160);
-  jT.pot = set_pot(0 ,160, -70, 510, 0);
-  jS.pot = set_pot(3 , 0, 0, 1023, 280);
+  jC.pot = set_pot(4 , 139,-90, 910, 90); 
+  jD.pot = set_pot(0 ,370, 0, 700, 160); 
+  jT.pot = set_pot(2 ,110, -90, 885, 90); 
+  jS.pot = set_pot(3 , 0, 0, 1023, 280); 
 
   // TUNE SERVO LOW AND HIGH VALUES
   // set_servo(pin,lowang,lowms,highang,highms)
@@ -166,6 +136,9 @@ void setup() {
   set_joint(jD,   80.0);
   set_joint(jT,    0.0); 
   set_joint(jS,   90.0);
+  
+  sacc_arm = setup_ms(LEN_BC, 0.0, LEN_AB,cmd_size);
+  sacc_arm.state = 2; // this should be overridden by S potentiometer
 
   pwm.begin();
   /*  Adafruit sevo library
@@ -187,184 +160,10 @@ void setup() {
   pwm.setOscillatorFrequency(27000000);
   pwm.setPWMFreq(SERVO_FREQ);  // Analog servos run at ~50 Hz updates
 
-  delay(10);
+  delay(10); // not sure why, but adafruit did it.
 }
-
-void pot_map(joint & jt) {
-  // Map a potentiometer value in millivolts to an angle
-  // map(value, fromLow, fromHigh, toLow, toHigh), uses integer math
-  // NOTE: SCALE ANGLES *10 THEN DIVIDE BY 10.0 TO GET 0.1 PRECISION FROM POT VALUES
-  jt.pot_angle = map(jt.pot_value, jt.pot.low_mv, jt.pot.high_mv, jt.pot.low_ang*10, jt.pot.high_ang*10) / 10.0; 
-  
-  jt.desired_angle = jt.pot_angle;  // assume that the two are equal for now
-}
-
-void servo_map(joint & jt) {
-  // Map an arm angle to servo microseconds
-  // PLAIN, No Rate Limiting
-  // Map joint angle to the servo microsecond value
-  jt.servo_ms = map(jt.desired_angle, jt.svo.low_ang, jt.svo.high_ang, jt.svo.low_ms, jt.svo.high_ms);
-
-  //jt.servo_ms = map(jt.previous_angle, jt.svo.low_ang, jt.svo.high_ang, jt.svo.low_ms, jt.svo.high_ms);
-}
-
-void servo_map_with_limits(joint & jt, float rate) {
-// WITH rate limiting
-// SERVO RATE LIMITING, for smooth operation and prevent damage
-// Limit how much a servo can change in a unit time
-
-  int dt;
-  float current_velo;
-  
-  dt = jt.previous_millis - millis();
-
-  current_velo = (jt.desired_angle-jt.previous_angle)/dt;
-//  current_accel = (current_velo-jt.previous_velo)/dt;
-//  jt.previous_velo = current_velo;
-  
-  if (current_velo > rate) {
-    jt.previous_angle += rate*dt;
-  } else if (-current_velo > rate) {
-    jt.previous_angle -= rate*dt;
-  } else {
-    jt.previous_angle = jt.desired_angle;
-  }
-
-  // Map joint angle to the servo microsecond value
-  jt.servo_ms = map(jt.previous_angle, jt.svo.low_ang, jt.svo.high_ang, jt.svo.low_ms, jt.svo.high_ms);
-   
-  jt.previous_millis = millis();
-}
-
-void log_data(joint jt,char jt_letter,boolean minmax) {
-  #if SERIALOUT
-    Serial.print(",");
-    Serial.print(jt_letter);
-    Serial.print(", p_val,");
-    Serial.print(jt.pot_value);
-    Serial.print(", Pang,");
-    Serial.print(jt.pot_angle,1);
-//    Serial.print(", PrevAngle,");
-//    Serial.print(jt.previous_angle,1);
-//    Serial.print(", DESAngle,");
-//    Serial.print(jt.desired_angle,1);
-//    Serial.print(", servo_ms,");
-//    Serial.print(jt.servo_ms);
-  #endif
-}
-
-void path1_loop() {
-  static float *angles;
-  static float time_ang;
-  if (path1_init) {
-    // first time in this function, do initialize
-    //  and set the other function to require initialize
-    path1_init=false; 
-    path2_init=true;
-    hold_init=true;  
-    input_arm_init=true;
-    
-     // initialize joints
-    jA.desired_angle = 80.0;
-    jB.desired_angle = 20.0;
-    jC.desired_angle = -70.0;
-    jD.desired_angle = 80.0;
-    jT.desired_angle = 0.0;  
-
-    //main_ang_velo = 0.02;
-
-  } else {
-      millisTime = millis();
-      time_ang = millisTime*0.001;
-    
-      ptC[0] = XC + R * cos(time_ang);
-      ptC[1] = R * sin(time_ang);
-      ptC[2] = 100.0;
-    
-      angles = inverse_arm_kinematics(ptC,LEN_AB,LEN_BC);
-      jA.desired_angle = angles[0]*RADIAN;
-      jB.desired_angle = -angles[1]*RADIAN - jA.desired_angle;
-      jT.desired_angle = angles[2]*RADIAN;  
-  // want Joint C to have a fix angle relative to ground, thus driven by joint B.
-  // The C potentiometer is for tuning (adding to) the C position.
-  pot_map(jC);
-  jC.pot_angle = -jC.pot_angle;  // REVERSED
-  jC.desired_angle = jC.pot_angle +jB.desired_angle - 60.0;
-
-
-      #if SERIALOUT
-        Serial.print(", A,");
-        Serial.print(jA.desired_angle);
-        Serial.print(", B,");
-        Serial.print(jB.desired_angle);
-        Serial.print(", T,");
-        Serial.print(jT.desired_angle);
-      #endif
-     }
-  }
-
-void path2_loop() {
-  // reads the path array and moves the arm
-  if (path2_init) {
-    // first time in this function, do initialize
-    //  and set the other function to require initialize
-    path2_init=false; 
-    path1_init=true;
-    hold_init=true;  
-    input_arm_init=true;
-    
-     // initialize joints
-    jA.desired_angle = 80.0;
-    jB.desired_angle = 20.0;
-    jC.desired_angle = -70.0;
-    jD.desired_angle = 80.0;
-    jT.desired_angle = 0.0;  
-
-    main_ang_velo = 0.05;
- 
-  } else  {
-        // LOOP UNTIL THE ANGLES ARE MET... UNTIL DONE ROUTINE        
-      }
-  }
-
-void hold_loop() {
-  // F2 - HOLD
-  if (hold_init) {
-    // first time in this function, do initialize
-    //  and set the other function to require initialize
-    path1_init=true; 
-    path2_init=true; 
-    hold_init=false;  
-    input_arm_init=true;
-
-    main_ang_velo = 0.1; // set the max velocity
-    
-  } else {
-     // initialize joints
-    jA.desired_angle = 110.0;
-    jB.desired_angle = 10.0;
-    jC.desired_angle = -70.0;
-    jD.desired_angle = 80.0;
-    jT.desired_angle = 0.0;  
-  }
-}
-
+/*
 void input_arm_loop() {
-  // Map potentiometer values to Angles and Convert to Robot arm angles
-  if (input_arm_init) {
-    // first time in this function, do initialize
-    //  and set the other function to require initialize
-    path1_init=true; 
-    path2_init=true; 
-    hold_init=true;  
-    input_arm_init=false;
-
-    main_ang_velo = 0.05;
-    
-  } else {
-    // main loop
-    pot_map(jA);
-  
     pot_map(jB);
     jB.desired_angle = constrain((jA.desired_angle + jB.pot_angle), jB.svo.low_ang, jB.svo.high_ang); 
 
@@ -379,55 +178,88 @@ void input_arm_loop() {
     pot_map(jT);
     jT.desired_angle = -jT.pot_angle;  // reverse the angle
   }
-}
+} */
 
 void loop() {
   //########### MAIN LOOP ############
+  static float *angles;
+  static unsigned long mst;
+  static int old_state;
+  static line lineCD;
 
-  // reads the pots
-  jA.pot_value = analogRead(jA.pot.analog_pin);  // read joint A
-  jB.pot_value = analogRead(jB.pot.analog_pin);  // read joint B
-  jC.pot_value = analogRead(jC.pot.analog_pin);  // read joint C (tuner pot)
-  jD.pot_value = analogRead(jD.pot.analog_pin);  // read the claw
-  jT.pot_value = analogRead(jT.pot.analog_pin);  // read the turntable
+  mst = millis();
+  sacc_arm.dt = mst - sacc_arm.prior_mst; // delta time
+  sacc_arm.prior_mst = mst;
+
   jS.pot_value = analogRead(jS.pot.analog_pin);  // read the selector
+  if (jS.pot_value < 600) {
+    sacc_arm.state = 1;  // read command list
+    if (old_state != 1) {
+      sacc_arm.initialize = true;
+    }
+  } else {
+    sacc_arm.state = 2;  // Manually control using input arm
+    if (old_state != 2) {
+      sacc_arm.initialize = true;
+    }
+  }
+  old_state = sacc_arm.state;
+  state_setup(sacc_arm);  // check if state changed at t   
 
   #if SERIALOUT
     // output for debugging
     // Serial.print(val,digits)
-    millisTime = millis();
-    Serial.print("ms,");
-    Serial.print(millisTime);
-    Serial.print(",S,");
-    Serial.print(jS.pot_value);
- #endif
+    Serial.print("mst,");
+    Serial.print(mst);
+    Serial.print(",STATE,");
+    Serial.print(sacc_arm.state);
+    Serial.print(",N,"); // command line
+    Serial.print(sacc_arm.n);
+    Serial.print(",CMD,");
+    Serial.print(cmd_array[sacc_arm.n][0]);
+  #endif
 
-  if (jS.pot_value < 200) {
-    path2_loop();  // Move the arm using the path2 array
-  } else if (jS.pot_value < 400) {
-    path1_loop();  // Move the arm using the path1 array
-  } else if (jS.pot_value < 600) {
-    hold_loop();  // Hold arm in initialize position
-  } else {
-    input_arm_loop();   // Manually control arm using input arm
+  switch (sacc_arm.state) {
+    case 0:  // DO NOTHING STATE
+      break;
+    case 1: // COMMAND CONTROL
+      commands_loop(sacc_arm,cmd_array);
+      // GET OUTPUT ANGLES FROM INPUTS
+      break;
+    case 2:  // MANUAL INPUT ARM CONTROL
+      jA.pot_value = analogRead(jA.pot.analog_pin);  // read joint A
+      jB.pot_value = analogRead(jB.pot.analog_pin);  // read joint B
+      jC.pot_value = analogRead(jC.pot.analog_pin);  // read joint Claw
+      jD.pot_value = analogRead(jD.pot.analog_pin);  // read D wrist
+      jT.pot_value = analogRead(jT.pot.analog_pin);  // read the turntable
+    
+      pot_map(jA);
+      pot_map(jB);
+      pot_map(jC); // Claw
+      sacc_arm.angClaw = jC.desired_angle;
+      pot_map(jD); // Wrist
+      pot_map(jT); // Turntable
+      // get point C and D from input arm angles:
+      lineCD = forward_arm_kinematics(jA.desired_angle/RADIAN,jB.desired_angle/RADIAN,jD.desired_angle/RADIAN,jT.desired_angle/RADIAN, LEN_AB, LEN_BC, LEN_CD);
+      inputArmLoop(sacc_arm, lineCD, 200); // limits movement given feed rate
+      break;
   }
-  
-  // Joint D is the Claw... sorry confusing, but C was taken
-  pot_map(jD);
-  jD.desired_angle = jD.pot_angle;
+  angles = inverse_arm_kinematics(sacc_arm.at_ptC,LEN_AB,LEN_BC,sacc_arm.at_ptD); 
+  jA.desired_angle = angles[0]*RADIAN;
+  jB.desired_angle = -(jA.desired_angle + angles[1]*RADIAN);  // sacc Specific Adjustment
+  //if (jB.desired_angle < -35.0) {
+  //  jB.desired_angle = -35.0;  // limit the B joint weight from contacting base 
+  //} 
+  jT.desired_angle = angles[2]*RADIAN;
+  jD.desired_angle = angles[3]*RADIAN;
+  jC.desired_angle = sacc_arm.angClaw;
 
-  // GET SERVO Pulse width VALUES FROM ROBOT ARM OUTPUT ANGLE
-  servo_map_with_limits(jA, main_ang_velo);
-  servo_map_with_limits(jB, main_ang_velo);  
-  servo_map_with_limits(jC, main_ang_velo); 
-  servo_map(jD);  // full speed on servo claw
-//  servo_map_with_limits(jD, 1.0);  // full speed on servo claw
-
-  // Turntable is geared down 2:1 
-  servo_map_with_limits(jT, main_ang_velo); 
-
-  // No S servo attached
-  //servo_map_with_limits(jS,main_ang_velo); 
+  // GET SERVO Pulse width VALUES FROM ARM OUTPUT ANGLE
+  servo_map(jA);
+  servo_map(jB);  
+  servo_map(jC); 
+  servo_map(jD); 
+  servo_map(jT); 
 
   #if A_ON
     pwm.writeMicroseconds(jA.svo.digital_pin, jA.servo_ms); // Adafruit servo library
@@ -449,19 +281,20 @@ void loop() {
     pwm.writeMicroseconds(jT.svo.digital_pin, jT.servo_ms); // Adafruit servo library
 //    servoT.writeMicroseconds(jT.servo_ms);
   #endif
-  /*
-  #if S_ON
-    servoT.writeMicroseconds(jS.servo_ms);
-  #endif
-*/
+
   #if SERIALOUT
-    //log_data(jA,'A',false);
-    //log_data(jB,'B',false);
-    log_data(jC,'C',false);
-    //log_data(jD,'D',false);
-    //log_data(jT,'T',false);
-    //log_pot(jT);
-    //log_data(jS,'S',false);
+    Serial.print(",C,");
+    Serial.print(sacc_arm.at_ptC.x);
+    Serial.print(",");
+    Serial.print(sacc_arm.at_ptC.y);
+    Serial.print(",");
+    Serial.print(sacc_arm.at_ptC.z); 
+    //logData(jA,'A');
+    //logData(jB,'B');
+    //logData(jC,'C');
+    //logData(jD,'D');
+    //logData(jT,'T');
+    //logData(jS,'S');
     Serial.println(", END");
   #endif
 }

@@ -15,20 +15,13 @@
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 #define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
 
-#define SERIALOUT true  // Controlls SERIAL output. Turn on when debugging. 
-// SERIAL OUTPUT AFFECTS SMOOTHNESS OF SERVO PERFORMANCE 
-//  WITH SERIAL true AND LOW 9600 BAUD RATE = JERKY PERFORMANCE
-//  WITH false OR HIGH 500000 BAUD RATE = SMOOTH PERFORMANCE
+#define SERIALOUT true  // Controlls SERIAL output. Set true when debugging. 
 
-#define LEN_AB 320.0     // Length of Input AB arm in mm
-#define LEN_BC 320.0     // Length of Input BC arm in mm
+#define LEN_AB 320.0     // Skystone AB arm in mm
+#define LEN_BC 320.0     // Skystone BC arm in mm
 #define LEN_CD 140.0
 
-//float main_ang_velo = 0.08; // Angular Velocity Limit, DEGREES PER MILLISECOND
-// Servos Max Velocity is about 60 deg in 0.12 sec or 460 deg/sec, or 0.46 degrees per millisecond
-// This assumes no load and full (7 V) voltage.
-
-// Booleans to turn on Servos. [bad code can damage servos. This can help isolate]
+// Booleans to turn on Servos. [bad code can damage servos. Use to isolate problems]
 #define A_ON true
 #define B_ON true
 #define C_ON true
@@ -41,24 +34,56 @@ struct machine_state skystone_arm;
 struct joint jA,jB,jC,jD,jT,jS;
 
 #define MMPS 200 // mm per second
-#define X_PP 300 // x mm for pick and place
+#define X_PP 280 // x mm for pick and place
 #define Y_MV 200 // y swing in mm
 #define FLOORH -80 // z of floor for picking
 #define BLOCKH 100 // block height mm
 
-static int cmd_array[][SIZE_CMD_ARRAY]={{1,MMPS, X_PP,Y_MV,FLOORH,  X_PP,1000,FLOORH}, // pick for block 1
-                           {0,2000,45,0,0,0,0,0}, // pause to pick block 1
-                           {0,1000,-45,0,0,0,0,0}, // pause to pick block 1
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+50,  1000, -Y_MV,FLOORH+50}, // place for block 1 
-                           {0,1000,45,0,0,0,0,0}, // pause to place block 1
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+BLOCKH,  1000, -Y_MV,FLOORH+BLOCKH}, // up to clear block 2 
-                           {1,MMPS, X_PP,Y_MV,FLOORH,  X_PP,1000,FLOORH}, // pick for block 2
-                           {0,2000,-45,0,0,0,0,0}, // pause to pick block 2
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+BLOCKH,  1000, -Y_MV,FLOORH+BLOCKH}, // place for block 2 
-                           {0,1000,45,0,0,0,0,0}, // pause to place block 2
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,  1000, -Y_MV,FLOORH+2*BLOCKH}, // up to clear block 2 
-                           {1,MMPS, X_PP,Y_MV,FLOORH,  X_PP,1000,FLOORH},  // pause to pick block 3
-                           {0,2000,-45,0,0,0,0,0}}; // pause to pick  block 3
+static int cmd_array[][SIZE_CMD_ARRAY]={{1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,  X_PP,1000,0}, // ready block 1
+                           {0,2000,45,0,0,0,0,0}, // pause to pick block 1 - UNIQUE IN SEQUENCE
+                           {1,MMPS, X_PP,Y_MV,FLOORH,             X_PP,1000,0}, // down to block 2
+                           {0,500,-45,0,0,0,0,0}, // pick block 1
+                           {1,MMPS, X_PP,Y_MV,FLOORH+2*BLOCKH,    1000, Y_MV,0}, // up block 1 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,   1000, -Y_MV,0}, // over block 1 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH,            1000, -Y_MV,0}, // place block 1 
+                           {0,500,45,0,0,0,0,0}, // drop block 1
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,      1000, -Y_MV,0}, // up clear block 1 
+                           
+                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,      X_PP,1000,0}, // ready block 2
+                           {1,MMPS, X_PP,Y_MV,FLOORH,             X_PP,1000,0}, // down to block 2
+                           {0,500,-45,0,0,0,0,0}, // pick block 2
+                           {1,MMPS, X_PP,Y_MV,FLOORH+3*BLOCKH,    1000, Y_MV,0}, // up block 2 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+3*BLOCKH,    1000, -Y_MV,0}, // over block 2 
+                           {1,MMPS/2, X_PP,-Y_MV,FLOORH+1*BLOCKH,  1000, -Y_MV,0}, // place block 2 
+                           {0,500,45,0,0,0,0,0}, // drop block 2
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+3*BLOCKH,    1000, -Y_MV,0}, // up clear block 2 
+                           
+                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       X_PP,1000,0},  // ready block 3
+                           {1,MMPS, X_PP,Y_MV,FLOORH,              X_PP,1000,0}, // down to block 2
+                           {0,500,-45,0,0,0,0,0}, // pick  block 3
+                           {1,MMPS, X_PP,Y_MV,FLOORH+4*BLOCKH,    1000, Y_MV,0}, // up block 3 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+4*BLOCKH,    1000, -Y_MV,0}, // over block 3 
+                           {1,MMPS/2, X_PP,-Y_MV,FLOORH+2*BLOCKH,  1000, -Y_MV,0}, // place block 3 
+                           {0,500,45,0,0,0,0,0}, // drop block 3
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+4*BLOCKH,    1000, -Y_MV,0}, // up clear block 3 
+                           
+                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       X_PP,1000,0},  // ready block 4
+                           {1,MMPS, X_PP,Y_MV,FLOORH,              X_PP,1000,0},  // pick block 4
+                           {0,500,-45,0,0,0,0,0}, // pick  block 4
+                           {1,MMPS, X_PP,Y_MV,FLOORH+5*BLOCKH,    1000, Y_MV,0}, // up block 4 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+5*BLOCKH,    1000, -Y_MV,0}, // over block 4 
+                           {1,MMPS/2, X_PP,-Y_MV,FLOORH+3*BLOCKH,  1000, -Y_MV,0}, // place block 4
+                           {0,500,45,0,0,0,0,0}, // drop block 4
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+5*BLOCKH,    1000, -Y_MV,0}, // up clear block 4 
+                           
+                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       X_PP,1000,0},  // pick block 5
+                           {1,MMPS, X_PP,Y_MV,FLOORH,              X_PP,1000,0},  // pick block 5
+                           {0,500,-45,0,0,0,0,0}, // pick  block 5
+                           {1,MMPS, X_PP,Y_MV,FLOORH+6*BLOCKH,    1000, Y_MV,0}, // up block 5 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+6*BLOCKH,    1000, -Y_MV,0}, // over block 5 
+                           {1,MMPS/2, X_PP,-Y_MV,FLOORH+4*BLOCKH,  1000, -Y_MV,0}, // place block 5
+                           {0,500,45,0,0,0,0,0}, // drop block 5
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+6*BLOCKH,    1000, -Y_MV,0}}; // up clear block 5 
                            
 void logData(joint jt,char jt_letter) {
   Serial.print(",");
@@ -78,7 +103,7 @@ void setup() {
   static int cmd_size = sizeof(cmd_array)/(SIZE_CMD_ARRAY*2);  // sizeof array.  2 bytes per int
   #if SERIALOUT
     Serial.begin(9600); // baud rate, slower is easier to read
-    while (!Serial) {
+    while (!Serial) { // With Leonardo, if SERIALOUT = true then this is never true.
       ; // wait for serial port to connect. Needed for native USB port only
     } 
     Serial.print("cmd_size,");
@@ -169,13 +194,12 @@ void loop() {
     // Serial.print(val,digits)
     Serial.print("mst,");
     Serial.print(mst);
-    Serial.print(", STATE,");
+    Serial.print(",STATE,");
     Serial.print(skystone_arm.state);
-    Serial.print(", N,"); // command line
+    Serial.print(",N,"); // command line
     Serial.print(skystone_arm.n);
-    Serial.print(", CMD,");
+    Serial.print(",CMD,");
     Serial.print(cmd_array[skystone_arm.n][0]);
-    
   #endif
 
   switch (skystone_arm.state) {
@@ -245,7 +269,7 @@ void loop() {
     Serial.print(skystone_arm.at_ptC.z);
     //logData(jA,'A');
     //logData(jB,'B');
-    logData(jC,'C');
+    //logData(jC,'C');
     //logData(jD,'D');
     //logData(jT,'T');
     //logData(jS,'S');

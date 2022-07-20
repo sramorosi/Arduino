@@ -355,24 +355,56 @@ struct machine_state test_machine;
 struct joint jA,jB,jC,jD,jT,jS;
 
 #define MMPS 200 // mm per second
-#define X_PP 300 // x mm for pick and place
+#define X_PP 280 // x mm for pick and place
 #define Y_MV 200 // y swing in mm
 #define FLOORH -80 // z of floor for picking
 #define BLOCKH 100 // block height mm
 
-static int cmd_array[][SIZE_CMD_ARRAY]={{1,MMPS, X_PP,Y_MV,FLOORH,  X_PP,1000,FLOORH}, // pick for block 1
-                           {0,2000,45,0,0,0,0,0}, // pause to pick block 1
-                           {0,1000,-45,0,0,0,0,0}, // pause to pick block 1
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+50,  1000, -Y_MV,FLOORH+50}, // place for block 1 
-                           {0,1000,45,0,0,0,0,0}, // pause to place block 1
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+BLOCKH,  1000, -Y_MV,FLOORH+BLOCKH}, // up to clear block 2 
-                           {1,MMPS, X_PP,Y_MV,FLOORH,  X_PP,1000,FLOORH}, // pick for block 2
-                           {0,2000,-45,0,0,0,0,0}, // pause to pick block 2
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+BLOCKH,  1000, -Y_MV,FLOORH+BLOCKH}, // place for block 2 
-                           {0,1000,45,0,0,0,0,0}, // pause to place block 2
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,  1000, -Y_MV,FLOORH+2*BLOCKH}, // up to clear block 2 
-                           {1,MMPS, X_PP,Y_MV,FLOORH,  X_PP,1000,FLOORH},  // pause to pick block 3
-                           {0,2000,-45,0,0,0,0,0}}; // pause to pick  block 3
+static int cmd_array[][SIZE_CMD_ARRAY]={{1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,  X_PP,1000,0}, // ready block 1
+                           {0,2000,45,0,0,0,0,0}, // pause to pick block 1 - UNIQUE IN SEQUENCE
+                           {1,MMPS, X_PP,Y_MV,FLOORH,             X_PP,1000,0}, // down to block 2
+                           {0,500,-45,0,0,0,0,0}, // pick block 1
+                           {1,MMPS, X_PP,Y_MV,FLOORH+2*BLOCKH,    1000, Y_MV,0}, // up block 1 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,   1000, -Y_MV,0}, // over block 1 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH,            1000, -Y_MV,0}, // place block 1 
+                           {0,500,45,0,0,0,0,0}, // drop block 1
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,      1000, -Y_MV,0}, // up clear block 1 
+                           
+                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,      X_PP,1000,0}, // ready block 2
+                           {1,MMPS, X_PP,Y_MV,FLOORH,             X_PP,1000,0}, // down to block 2
+                           {0,500,-45,0,0,0,0,0}, // pick block 2
+                           {1,MMPS, X_PP,Y_MV,FLOORH+3*BLOCKH,    1000, Y_MV,0}, // up block 2 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+3*BLOCKH,    1000, -Y_MV,0}, // over block 2 
+                           {1,MMPS/2, X_PP,-Y_MV,FLOORH+1*BLOCKH,  1000, -Y_MV,0}, // place block 2 
+                           {0,500,45,0,0,0,0,0}, // drop block 2
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+3*BLOCKH,    1000, -Y_MV,0}, // up clear block 2 
+                           
+                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       X_PP,1000,0},  // ready block 3
+                           {1,MMPS, X_PP,Y_MV,FLOORH,              X_PP,1000,0}, // down to block 2
+                           {0,500,-45,0,0,0,0,0}, // pick  block 3
+                           {1,MMPS, X_PP,Y_MV,FLOORH+4*BLOCKH,    1000, Y_MV,0}, // up block 3 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+4*BLOCKH,    1000, -Y_MV,0}, // over block 3 
+                           {1,MMPS/2, X_PP,-Y_MV,FLOORH+2*BLOCKH,  1000, -Y_MV,0}, // place block 3 
+                           {0,500,45,0,0,0,0,0}, // drop block 3
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+4*BLOCKH,    1000, -Y_MV,0}, // up clear block 3 
+                           
+                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       X_PP,1000,0},  // ready block 4
+                           {1,MMPS, X_PP,Y_MV,FLOORH,              X_PP,1000,0},  // pick block 4
+                           {0,500,-45,0,0,0,0,0}, // pick  block 4
+                           {1,MMPS, X_PP,Y_MV,FLOORH+5*BLOCKH,    1000, Y_MV,0}, // up block 4 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+5*BLOCKH,    1000, -Y_MV,0}, // over block 4 
+                           {1,MMPS/2, X_PP,-Y_MV,FLOORH+3*BLOCKH,  1000, -Y_MV,0}, // place block 4
+                           {0,500,45,0,0,0,0,0}, // drop block 4
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+5*BLOCKH,    1000, -Y_MV,0}, // up clear block 4 
+                           
+                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       X_PP,1000,0},  // pick block 5
+                           {1,MMPS, X_PP,Y_MV,FLOORH,              X_PP,1000,0},  // pick block 5
+                           {0,500,-45,0,0,0,0,0}, // pick  block 5
+                           {1,MMPS, X_PP,Y_MV,FLOORH+6*BLOCKH,    1000, Y_MV,0}, // up block 5 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+6*BLOCKH,    1000, -Y_MV,0}, // over block 5 
+                           {1,MMPS/2, X_PP,-Y_MV,FLOORH+4*BLOCKH,  1000, -Y_MV,0}, // place block 5
+                           {0,500,45,0,0,0,0,0}, // drop block 5
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+6*BLOCKH,    1000, -Y_MV,0}}; // up clear block 5 
 
 void setup() {
   static int cmd_size = sizeof(cmd_array)/(SIZE_CMD_ARRAY*2);  // sizeof array.  2 bytes per int
