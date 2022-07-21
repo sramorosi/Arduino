@@ -14,18 +14,18 @@
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 #define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
 
-#define SERIALOUT true  // Controlls SERIAL output. Set true when debugging. 
+#define SERIALOUT false  // Controlls SERIAL output. Set true when debugging. 
 
 #define LEN_AB 195.0     // SACC MK2 AB arm in mm
 #define LEN_BC 240.0     // SACC MK2 BC arm in mm
 #define LEN_CD 120.0
 
 // Booleans to turn on Servos. [bad code can damage servos. Use to isolate problems]
-#define A_ON false
-#define B_ON false
-#define C_ON false
-#define D_ON false
-#define T_ON false
+#define A_ON true
+#define B_ON true
+#define C_ON true
+#define D_ON true
+#define T_ON true
 #define S_ON false
 
 static struct machine_state sacc_arm; 
@@ -33,9 +33,9 @@ static struct machine_state sacc_arm;
 static struct joint jA,jB,jC,jD,jT,jS;
 
 #define MMPS 200 // mm per second
-#define X_PP 250 // x mm for pick and place
-#define Y_MV 150 // y swing in mm
-#define FLOORH -80 // z of floor for picking
+#define X_PP 240 // x mm for pick and place
+#define Y_MV 140 // y swing in mm
+#define FLOORH -10 // z of floor for picking
 #define BLOCKH 51 // block height mm of 2 inch block
 
 static int cmd_array[][SIZE_CMD_ARRAY]={{1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,  X_PP,1000,0}, // ready block 1
@@ -43,8 +43,8 @@ static int cmd_array[][SIZE_CMD_ARRAY]={{1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,  X_PP,
                            {1,MMPS, X_PP,Y_MV,FLOORH,             X_PP,1000,0}, // down to block 2
                            {0,500,-45,0,0,0,0,0}, // pick block 1
                            {1,MMPS, X_PP,Y_MV,FLOORH+2*BLOCKH,    1000, Y_MV,0}, // up block 1 
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,   1000, -Y_MV,0}, // over block 1 
-                           {1,MMPS, X_PP,-Y_MV,FLOORH,            1000, -Y_MV,0}, // place block 1 
+                           {1,MMPS, X_PP-10,-Y_MV+10,FLOORH+2*BLOCKH,   1000, -Y_MV,0}, // over block 1 
+                           {1,MMPS, X_PP-20,-Y_MV+20,FLOORH,            1000, -Y_MV,0}, // place block 1 
                            {0,500,45,0,0,0,0,0}, // drop block 1
                            {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,      1000, -Y_MV,0}, // up clear block 1 
                            
@@ -87,16 +87,16 @@ static int cmd_array[][SIZE_CMD_ARRAY]={{1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,  X_PP,
 void logData(joint jt,char jt_letter) {
   Serial.print(",");
   Serial.print(jt_letter);
-  Serial.print(", p_value,");
-  Serial.print(jt.pot_value);
+//  Serial.print(", p_value,");
+//  Serial.print(jt.pot_value);
   Serial.print(", Pang,");
   Serial.print(jt.pot_angle,1);
 //  Serial.print(", PrevAngle,");
   //Serial.print(jt.previous_angle,1);
-//  Serial.print(",dsr_ang,");
-//  Serial.print(jt.desired_angle,1);
-//  Serial.print(", servo_ms,");
-//  Serial.print(jt.servo_ms);
+  Serial.print(",dsr_ang,");
+  Serial.print(jt.desired_angle,1);
+  Serial.print(", servo_ms,");
+  Serial.print(jt.servo_ms);
 }
 
 void setup() {
@@ -114,18 +114,17 @@ void setup() {
   // set_pot(pin,lowmv,lowang,highmv,highang)
   jA.pot = set_pot(1 ,160,  0, 870, 175);
   jB.pot = set_pot(5 ,131,-90, 500,  0);
-  jC.pot = set_pot(4 , 139,-90, 910, 90); 
-  jD.pot = set_pot(0 ,370, 0, 700, 160); 
+  jC.pot = set_pot(4 , 139,-50, 910, 50); 
+  jD.pot = set_pot(0 ,460, 0, 800, -60); 
   jT.pot = set_pot(2 ,110, -90, 885, 90); 
   jS.pot = set_pot(3 , 0, 0, 1023, 280); 
 
   // TUNE SERVO LOW AND HIGH VALUES
   // set_servo(pin,lowang,lowms,highang,highms)
   jA.svo = set_servo(0,  0.0, 960, 170.0, 2200);
-  //jB.svo = set_servo(1, -50.0, 1000, 90.0, 2300); // high to low
-  jB.svo = set_servo(1, -50.0, 2300, 90.0, 1000); // high to low
-  jC.svo = set_servo(2, -90.0, 2400, 90.0, 1060); // high to low
-  jD.svo = set_servo(3,  0.0,  500, 160.0, 2300);
+  jB.svo = set_servo(1, 0.0, 1500, 80.0, 1070); // high to low
+  jC.svo = set_servo(3, -50.0, 1060, 50.0, 2400); // high to low
+  jD.svo = set_servo(2,  90.0,  1000, 0.0, 1635);
   jT.svo = set_servo(4,-70.0,  400, 70.0, 2500);
   //jS.svo = set_servo(5,  0.0,  400, 180.0, 2500);
 
@@ -224,7 +223,7 @@ void loop() {
       break;
     case 1: // COMMAND CONTROL
       commands_loop(sacc_arm,cmd_array);
-      // GET OUTPUT ANGLES FROM INPUTS
+      jD.desired_angle = 0.0;      // to be fixed
       break;
     case 2:  // MANUAL INPUT ARM CONTROL
       jA.pot_value = analogRead(jA.pot.analog_pin);  // read joint A
@@ -242,17 +241,28 @@ void loop() {
       // get point C and D from input arm angles:
       lineCD = forward_arm_kinematics(jA.desired_angle/RADIAN,jB.desired_angle/RADIAN,jD.desired_angle/RADIAN,jT.desired_angle/RADIAN, LEN_AB, LEN_BC, LEN_CD);
       inputArmLoop(sacc_arm, lineCD, 200); // limits movement given feed rate
+      jD.desired_angle = angles[3]*RADIAN;
       break;
   }
   angles = inverse_arm_kinematics(sacc_arm.at_ptC,LEN_AB,LEN_BC,sacc_arm.at_ptD); 
   jA.desired_angle = angles[0]*RADIAN;
-  jB.desired_angle = -(jA.desired_angle + angles[1]*RADIAN);  // sacc Specific Adjustment
+  jB.desired_angle = (jA.desired_angle + angles[1]*RADIAN);  // sacc Specific Adjustment
   //if (jB.desired_angle < -35.0) {
   //  jB.desired_angle = -35.0;  // limit the B joint weight from contacting base 
   //} 
-  jT.desired_angle = angles[2]*RADIAN;
-  jD.desired_angle = angles[3]*RADIAN;
+  jT.desired_angle = -angles[2]*RADIAN;
   jC.desired_angle = sacc_arm.angClaw;
+
+  switch (sacc_arm.state) {  // TO DO: find a better way
+    case 0:  // DO NOTHING STATE
+      break;
+    case 1: // COMMAND CONTROL
+      jD.desired_angle = -jB.desired_angle-85.0;      // to be fixed
+      break;
+    case 2:  // MANUAL INPUT ARM CONTROL
+      jD.desired_angle = -jB.desired_angle+jD.pot_angle;      // to be fixed
+      break;
+  }
 
   // GET SERVO Pulse width VALUES FROM ARM OUTPUT ANGLE
   servo_map(jA);
@@ -290,9 +300,9 @@ void loop() {
     Serial.print(",");
     Serial.print(sacc_arm.at_ptC.z); 
     //logData(jA,'A');
-    //logData(jB,'B');
+    logData(jB,'B');
     //logData(jC,'C');
-    //logData(jD,'D');
+    logData(jD,'D');
     //logData(jT,'T');
     //logData(jS,'S');
     Serial.println(", END");
