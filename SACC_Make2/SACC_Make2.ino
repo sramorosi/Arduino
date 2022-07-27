@@ -32,6 +32,9 @@ static struct machine_state sacc_arm;
 
 static struct joint jA,jB,jC,jD,jT,jS;
 
+static line lineCD;
+static float *angles;
+
 #define MMPS 200 // mm per second
 #define X_PP 240 // x mm for pick and place
 #define Y_MV 140 // y swing in mm
@@ -90,13 +93,64 @@ void logData(joint jt,char jt_letter) {
 //  Serial.print(", p_value,");
 //  Serial.print(jt.pot_value);
   Serial.print(", Pang,");
-  Serial.print(jt.pot_angle,1);
+  Serial.print(jt.pot_angle*RADIAN,1);
 //  Serial.print(", PrevAngle,");
   //Serial.print(jt.previous_angle,1);
   Serial.print(",dsr_ang,");
-  Serial.print(jt.desired_angle,1);
+  Serial.print(jt.desired_angle*RADIAN,1);
   Serial.print(", servo_ms,");
   Serial.print(jt.servo_ms);
+}
+
+void common_loop() {
+  angles = inverse_arm_kinematics(sacc_arm.at_ptC,LEN_AB,LEN_BC,sacc_arm.at_ptD); 
+  jA.desired_angle = angles[0];
+  jB.desired_angle = (jA.desired_angle + angles[1]);  // sacc Specific Adjustment
+  //if (jB.desired_angle < -35.0) {
+  //  jB.desired_angle = -35.0;  // limit the B joint weight from contacting base 
+  //} 
+  jT.desired_angle = -angles[2];
+  jC.desired_angle = sacc_arm.angClaw;
+
+  switch (sacc_arm.state) {  // TO DO: find a better way
+    case 0:  // DO NOTHING STATE
+      break;
+    case 1: // COMMAND CONTROL
+      jD.desired_angle = -jB.desired_angle-85.0;      // to be fixed
+      break;
+    case 2:  // MANUAL INPUT ARM CONTROL
+      jD.desired_angle = -jB.desired_angle+jD.pot_angle;      // to be fixed
+      break;
+  }
+
+  // GET SERVO Pulse width VALUES FROM ARM OUTPUT ANGLE
+  servo_map(jA);
+  servo_map(jB);  
+  servo_map(jC); 
+  servo_map(jD); 
+  servo_map(jT); 
+
+  #if A_ON
+    pwm.writeMicroseconds(jA.svo.digital_pin, jA.servo_ms); // Adafruit servo library
+    //servoA.writeMicroseconds(jA.servo_ms);
+  #endif
+  #if B_ON
+    pwm.writeMicroseconds(jB.svo.digital_pin, jB.servo_ms); // Adafruit servo library
+    //servoB.writeMicroseconds(jB.servo_ms);
+  #endif
+  #if C_ON
+    pwm.writeMicroseconds(jC.svo.digital_pin, jC.servo_ms); // Adafruit servo library
+    //servoC.writeMicroseconds(jC.servo_ms);
+  #endif
+  #if D_ON
+    pwm.writeMicroseconds(jD.svo.digital_pin, jD.servo_ms); // Adafruit servo library
+    //servoD.writeMicroseconds(jD.servo_ms);
+  #endif
+  #if T_ON
+    pwm.writeMicroseconds(jT.svo.digital_pin, jT.servo_ms); // Adafruit servo library
+    //servoT.writeMicroseconds(jT.servo_ms);
+  #endif
+  return; 
 }
 
 void setup() {
@@ -109,36 +163,7 @@ void setup() {
     Serial.print("cmd_size,");
     Serial.println(cmd_size);
    #endif
-  
-  // TUNE POT LOW AND HIGH VALUES
-  // set_pot(pin,lowmv,lowang,highmv,highang)
-  jA.pot = set_pot(1 ,160,  0, 870, 175);
-  jB.pot = set_pot(5 ,131,-90, 500,  0);
-  jC.pot = set_pot(4 , 139,-50, 910, 50); 
-  jD.pot = set_pot(0 ,460, 0, 800, -60); 
-  jT.pot = set_pot(2 ,110, -90, 885, 90); 
-  jS.pot = set_pot(3 , 0, 0, 1023, 280); 
-
-  // TUNE SERVO LOW AND HIGH VALUES
-  // set_servo(pin,lowang,lowms,highang,highms)
-  jA.svo = set_servo(0,  0.0, 960, 170.0, 2200);
-  jB.svo = set_servo(1, 0.0, 1500, 80.0, 1070); // high to low
-  jC.svo = set_servo(3, -50.0, 1060, 50.0, 2400); // high to low
-  jD.svo = set_servo(2,  90.0,  1000, 0.0, 1635);
-  jT.svo = set_servo(4,-70.0,  400, 70.0, 2500);
-  //jS.svo = set_servo(5,  0.0,  400, 180.0, 2500);
-
-  // INITIALIZATION ANGLES FOR ARM
-  set_joint(jA, 110.0);  
-  set_joint(jB,  10.0);
-  set_joint(jC,  -70.0);
-  set_joint(jD,   80.0);
-  set_joint(jT,    0.0); 
-  set_joint(jS,   90.0);
-  
-  sacc_arm = setup_ms(LEN_BC, 0.0, LEN_AB,cmd_size);
-  sacc_arm.state = 2; // this should be overridden by S potentiometer
-
+   
   pwm.begin();
   /*  Adafruit sevo library
    * In theory the internal oscillator (clock) is 25MHz but it really isn't
@@ -160,31 +185,44 @@ void setup() {
   pwm.setPWMFreq(SERVO_FREQ);  // Analog servos run at ~50 Hz updates
 
   delay(10); // not sure why, but adafruit did it.
+  
+  sacc_arm = setup_ms(LEN_BC, 0.0, LEN_AB,cmd_size);
+  sacc_arm.state = 2; // this should be overridden by S potentiometer
+
+  // TUNE POT LOW AND HIGH VALUES
+  // set_pot(pin,lowmv,lowang,highmv,highang)
+  jA.pot = set_pot(1 ,160,  0/RADIAN, 870, 175/RADIAN);
+  jB.pot = set_pot(5 ,131,-90/RADIAN, 500,  0/RADIAN);
+  jC.pot = set_pot(4 , 139,-50/RADIAN, 910, 50/RADIAN); 
+  jD.pot = set_pot(0 ,460, 0/RADIAN, 800, -60/RADIAN); 
+  jT.pot = set_pot(2 ,110, -90/RADIAN, 885, 90/RADIAN); 
+  jS.pot = set_pot(3 , 0, 0/RADIAN, 1023, 280/RADIAN); 
+
+  // TUNE SERVO LOW AND HIGH VALUES
+  // set_servo(pin,lowang,lowms,highang,highms)
+  jA.svo = set_servo(0,  0.0/RADIAN, 960, 170.0/RADIAN, 2200);
+  jB.svo = set_servo(1, 0.0/RADIAN, 1500, 80.0/RADIAN, 1070); // high to low
+  jC.svo = set_servo(3, -50.0/RADIAN, 1060, 50.0/RADIAN, 2400); // high to low
+  jD.svo = set_servo(2,  90.0/RADIAN,  1000, 0.0/RADIAN, 1635);
+  jT.svo = set_servo(4,-70.0/RADIAN,  400, 70.0/RADIAN, 2500);
+  //jS.svo = set_servo(5,  0.0/RADIAN,  400, 180.0/RADIAN, 2500);
+
+  // INITIALIZATION ANGLES FOR ARM
+  set_joint(jA, 120.0/RADIAN);  
+  set_joint(jB, -90.0/RADIAN);
+  set_joint(jC,   0.0);
+  set_joint(jD,   80.0/RADIAN);
+  set_joint(jT,    0.0/RADIAN); 
+  set_joint(jS,   90.0/RADIAN);
+  
+  lineCD = forward_arm_kinematics(jA.desired_angle/RADIAN,jB.desired_angle/RADIAN,jD.desired_angle/RADIAN,jT.desired_angle/RADIAN, LEN_AB, LEN_BC, LEN_CD);
+  common_loop();
 }
-/*
-void input_arm_loop() {
-    pot_map(jB);
-    jB.desired_angle = constrain((jA.desired_angle + jB.pot_angle), jB.svo.low_ang, jB.svo.high_ang); 
-
-  // want Joint C to have a fix angle relative to ground, thus driven by joint B.
-  // The C potentiometer is for tuning (adding to) the C position.
-  pot_map(jC);
-  jC.pot_angle = -jC.pot_angle;  // REVERSED
-  jC.desired_angle = jC.pot_angle -jB.desired_angle - 60.0;
-
-     
-    // Turntable
-    pot_map(jT);
-    jT.desired_angle = -jT.pot_angle;  // reverse the angle
-  }
-} */
 
 void loop() {
   //########### MAIN LOOP ############
-  static float *angles;
   static unsigned long mst;
   static int old_state;
-  static line lineCD;
 
   mst = millis();
   sacc_arm.dt = mst - sacc_arm.prior_mst; // delta time
@@ -241,57 +279,12 @@ void loop() {
       // get point C and D from input arm angles:
       lineCD = forward_arm_kinematics(jA.desired_angle/RADIAN,jB.desired_angle/RADIAN,jD.desired_angle/RADIAN,jT.desired_angle/RADIAN, LEN_AB, LEN_BC, LEN_CD);
       inputArmLoop(sacc_arm, lineCD, 200); // limits movement given feed rate
-      jD.desired_angle = angles[3]*RADIAN;
-      break;
-  }
-  angles = inverse_arm_kinematics(sacc_arm.at_ptC,LEN_AB,LEN_BC,sacc_arm.at_ptD); 
-  jA.desired_angle = angles[0]*RADIAN;
-  jB.desired_angle = (jA.desired_angle + angles[1]*RADIAN);  // sacc Specific Adjustment
-  //if (jB.desired_angle < -35.0) {
-  //  jB.desired_angle = -35.0;  // limit the B joint weight from contacting base 
-  //} 
-  jT.desired_angle = -angles[2]*RADIAN;
-  jC.desired_angle = sacc_arm.angClaw;
-
-  switch (sacc_arm.state) {  // TO DO: find a better way
-    case 0:  // DO NOTHING STATE
-      break;
-    case 1: // COMMAND CONTROL
-      jD.desired_angle = -jB.desired_angle-85.0;      // to be fixed
-      break;
-    case 2:  // MANUAL INPUT ARM CONTROL
-      jD.desired_angle = -jB.desired_angle+jD.pot_angle;      // to be fixed
+      jD.desired_angle = angles[3];
       break;
   }
 
-  // GET SERVO Pulse width VALUES FROM ARM OUTPUT ANGLE
-  servo_map(jA);
-  servo_map(jB);  
-  servo_map(jC); 
-  servo_map(jD); 
-  servo_map(jT); 
-
-  #if A_ON
-    pwm.writeMicroseconds(jA.svo.digital_pin, jA.servo_ms); // Adafruit servo library
-    //servoA.writeMicroseconds(jA.servo_ms);
-  #endif
-  #if B_ON
-    pwm.writeMicroseconds(jB.svo.digital_pin, jB.servo_ms); // Adafruit servo library
-    //servoB.writeMicroseconds(jB.servo_ms);
-  #endif
-  #if C_ON
-    pwm.writeMicroseconds(jC.svo.digital_pin, jC.servo_ms); // Adafruit servo library
-    //servoC.writeMicroseconds(jC.servo_ms);
-  #endif
-  #if D_ON
-    pwm.writeMicroseconds(jD.svo.digital_pin, jD.servo_ms); // Adafruit servo library
-//    servoD.writeMicroseconds(jD.servo_ms);
-  #endif
-  #if T_ON
-    pwm.writeMicroseconds(jT.svo.digital_pin, jT.servo_ms); // Adafruit servo library
-//    servoT.writeMicroseconds(jT.servo_ms);
-  #endif
-
+  common_loop();
+  
   #if SERIALOUT
     Serial.print(",C,");
     Serial.print(sacc_arm.at_ptC.x);

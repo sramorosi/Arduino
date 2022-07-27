@@ -12,14 +12,14 @@ struct point {float x,y,z;};
 struct line {struct point p1 , p2; };
 
 struct machine_state {
-  int state; // 0=TBD,1=code_array,2=manual: CHANGED BY S POT
+  int state; // 0=TBD,1=code_array,2=manual: CHANGED BY S POTENTIOMETER
   boolean initialize; // =true if one needs to initialize state
   int n; // current active index in the command array
   int cmd_size; // size of the command array
   unsigned long prior_mst; // clock time (microseconds) prior loop 
   unsigned long dt; // delta loop time in ms
-  unsigned long timerStart; 
-  float dist;
+  unsigned long timerStart; // timer, for delays
+  float dist; // distance traveled in a move
   point at_ptC; // current C point 
   point at_ptD; // current D point 
   float angClaw;
@@ -50,9 +50,9 @@ static int cmd_array[][SIZE_CMD_ARRAY]={{1,100,300,0,250,0,0,0},
 struct potentiometer {
   int analog_pin; // Arduino analog pin number (0 - 5)
   int low_mv; // low voltage point, from 0 (0 Volts) to 1023 (5 Volts)
-  int low_ang; // corresponding angle at low voltage
+  int low_ang; // corresponding angle at low voltage, in radians
   int high_mv; // high voltage point, from 0 (0 Volts) to 1023 (5 Volts)
-  int high_ang; // corresponding angle at high voltage
+  int high_ang; // corresponding angle at high voltage, in radians
   // Note: low and high values do not need to be  at the extreems
   //  Tip:  Pick low and high angles that are easy to read/set/measure
   //      Values outside of the low and high will be extrapolated
@@ -65,19 +65,18 @@ struct arm_servo {
   // 180 deg SAVOX, gets 170 deg motion with 500 to 2800 microsecond range
   uint8_t digital_pin; // Adafruit digital pin number
   int low_ms; // low microsecond point, from about 500 to 2400
-  float low_ang; // corresponding angle at low microsecond
+  float low_ang; // corresponding angle at low microsecond, in radians
   int high_ms; // high microsecond point, from about 500 to 2400
-  float high_ang; // corresponding angle at high microsecond
+  float high_ang; // corresponding angle at high microsecond, in radians
 }; 
 
 struct joint {
   potentiometer pot; // Sub structure which contains static pot information
   arm_servo svo; // Sub structure which contains the static servo information
   int pot_value;  // current potentiometer value in millivolts 
-  float pot_angle; // Potentiometer arm angle, if used
+  float pot_angle; // Potentiometer arm angle, if used, in radians
   unsigned long previous_millis; // used to find servo rate of change
-  float previous_angle;  // used with rate limiting
-  float desired_angle;  // angle from input device or array
+  float desired_angle;  // angle from input device or array, in radians
   int servo_ms;   // servo command in microseconds
   //float previous_velo;  // previous velocity, used to find acceleration
 };
@@ -111,7 +110,6 @@ void set_joint(joint & jt, float initial_angle) {
   // Converts initial_angle to Servo Microseconds
   jt.pot_value = 500;  // middle ish
   jt.desired_angle = initial_angle;
-  jt.previous_angle = initial_angle;
   jt.servo_ms = map(initial_angle,jt.svo.low_ang,jt.svo.high_ang,jt.svo.low_ms,jt.svo.high_ms);
   jt.previous_millis = millis();
 }
@@ -172,7 +170,7 @@ float * inverse_arm_kinematics(point c, float l_ab, float l_bc, point d) {
   // The joints A,B are on a turntable with rotation T parallel to Z through A
   // With T_angle = 0, then joints A & B are parallel to the Y axis
   // calculate the angles given pt C ***Inverse Kinematics***
-  // returns an array with [A_angle,B_angle,T_angle,D_angle] 
+  // returns an array with [A_angle,B_angle,T_angle,D_angle] in radians
   
   float xy_len, c_len, sub_angle1, sub_angle2;
   static float angles[4] = {0.0,0.0,0.0,0.0};  // [ A , B , T , D]
@@ -217,12 +215,6 @@ line forward_arm_kinematics(float a, float b, float d, float t, float l_ab, floa
   pD.x = l_cd;   pD.y = 0.0;  pD.z = 0.0;
   pC.x = l_bc;   pC.y = 0.0;  pC.z = 0.0;
   pB.x = l_ab;   pB.y = 0.0;  pB.z = 0.0;
-  //pD2 = rot_pt_z(pD,d);
-  //pD3 = add_pts(pC,pD2);
-  //pD2 = rot_pt_y(pD3,b); // reuse pD2
-  //pD3 = add_pts(pD2,pB);  // reuse pD3
-  //pD2 = rot_pt_y(pD3,a);  // reuse pD2
-  //pD3 = rot_pt_z(pD2,t);  // reuse pD3
   
   pC2 = rot_pt_y(pC,b);
   pC3 = add_pts(pB,pC2);
@@ -268,8 +260,8 @@ void commands_loop(machine_state & machine, int cmds[][SIZE_CMD_ARRAY]) {
   if (machine.n != 9999) {
     switch (cmds[machine.n][0]) {
       case 0: // DELAY and C joint move
-        machine.angClaw = cmds[machine.n][2];  // set the claw angle
-        if ((millis()-machine.timerStart) > cmds[machine.n][1]) {
+       machine.angClaw = cmds[machine.n][2]/RADIAN;  // set the claw angle
+       if ((millis()-machine.timerStart) > cmds[machine.n][1]) {
           go_to_next_cmd(machine);        
         }
         break;
@@ -328,22 +320,19 @@ void state_setup(machine_state & machine) {
     machine.initialize = false;
   }  
 }
-
+// #####################################################################################33
 //  COMMENT OUT BELOW HERE WHEN SAVING AS AN INCLUDE (.h) FILE
 /*
 // todo: pass paramaters to turn things on and off
-//  NOW, COMMENT OUT AND PUT FUNCTION IN SKETCH
 void logData(joint jt,char jt_letter) {
   Serial.print(",");
   Serial.print(jt_letter);
 //  Serial.print(", p_value,");
 //  Serial.print(jt.pot_value);
 //  Serial.print(", Pang,");
-//  Serial.print(jt.pot_angle,1);
-//  Serial.print(", PrevAngle,");
-  //Serial.print(jt.previous_angle,1);
+//  Serial.print(jt.pot_angle*RADIAN,1);
   Serial.print(",dsr_ang,");
-  Serial.print(jt.desired_angle,1);
+  Serial.print(jt.desired_angle*RADIAN,1);
 //  Serial.print(", servo_ms,");
 //  Serial.print(jt.servo_ms);
 } 
@@ -356,24 +345,56 @@ struct machine_state test_machine;
 struct joint jA,jB,jC,jD,jT,jS;
 
 #define MMPS 200 // mm per second
-#define X_PP 300 // x mm for pick and place
+#define X_PP 280 // x mm for pick and place
 #define Y_MV 200 // y swing in mm
 #define FLOORH -80 // z of floor for picking
 #define BLOCKH 100 // block height mm
 
-static int cmd_array[][SIZE_CMD_ARRAY]={{1,MMPS, X_PP,Y_MV,FLOORH,  X_PP,1000,FLOORH}, // pick for block 1
-                           {0,2000,45,0,0,0,0,0}, // pause to pick block 1
-                           {0,1000,-45,0,0,0,0,0}, // pause to pick block 1
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+50,  1000, -Y_MV,FLOORH+50}, // place for block 1 
-                           {0,1000,45,0,0,0,0,0}, // pause to place block 1
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+BLOCKH,  1000, -Y_MV,FLOORH+BLOCKH}, // up to clear block 2 
-                           {1,MMPS, X_PP,Y_MV,FLOORH,  X_PP,1000,FLOORH}, // pick for block 2
-                           {0,2000,-45,0,0,0,0,0}, // pause to pick block 2
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+BLOCKH,  1000, -Y_MV,FLOORH+BLOCKH}, // place for block 2 
-                           {0,1000,45,0,0,0,0,0}, // pause to place block 2
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,  1000, -Y_MV,FLOORH+2*BLOCKH}, // up to clear block 2 
-                           {1,MMPS, X_PP,Y_MV,FLOORH,  X_PP,1000,FLOORH},  // pause to pick block 3
-                           {0,2000,-45,0,0,0,0,0}}; // pause to pick  block 3
+static int cmd_array[][SIZE_CMD_ARRAY]={{1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,  X_PP,1000,0}, // ready block 1
+                           {0,2000,45,0,0,0,0,0}, // pause to pick block 1 - UNIQUE IN SEQUENCE
+                           {1,MMPS, X_PP,Y_MV,FLOORH,             X_PP,1000,0}, // down to block 2
+                           {0,500,-45,0,0,0,0,0}, // pick block 1
+                           {1,MMPS, X_PP,Y_MV,FLOORH+2*BLOCKH,    1000, Y_MV,0}, // up block 1 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,   1000, -Y_MV,0}, // over block 1 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH,            1000, -Y_MV,0}, // place block 1 
+                           {0,500,45,0,0,0,0,0}, // drop block 1
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,      1000, -Y_MV,0}, // up clear block 1 
+                           
+                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,      X_PP,1000,0}, // ready block 2
+                           {1,MMPS, X_PP,Y_MV,FLOORH,             X_PP,1000,0}, // down to block 2
+                           {0,500,-45,0,0,0,0,0}, // pick block 2
+                           {1,MMPS, X_PP,Y_MV,FLOORH+3*BLOCKH,    1000, Y_MV,0}, // up block 2 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+3*BLOCKH,    1000, -Y_MV,0}, // over block 2 
+                           {1,MMPS/2, X_PP,-Y_MV,FLOORH+1*BLOCKH,  1000, -Y_MV,0}, // place block 2 
+                           {0,500,45,0,0,0,0,0}, // drop block 2
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+3*BLOCKH,    1000, -Y_MV,0}, // up clear block 2 
+                           
+                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       X_PP,1000,0},  // ready block 3
+                           {1,MMPS, X_PP,Y_MV,FLOORH,              X_PP,1000,0}, // down to block 2
+                           {0,500,-45,0,0,0,0,0}, // pick  block 3
+                           {1,MMPS, X_PP,Y_MV,FLOORH+4*BLOCKH,    1000, Y_MV,0}, // up block 3 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+4*BLOCKH,    1000, -Y_MV,0}, // over block 3 
+                           {1,MMPS/2, X_PP,-Y_MV,FLOORH+2*BLOCKH,  1000, -Y_MV,0}, // place block 3 
+                           {0,500,45,0,0,0,0,0}, // drop block 3
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+4*BLOCKH,    1000, -Y_MV,0}, // up clear block 3 
+                           
+                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       X_PP,1000,0},  // ready block 4
+                           {1,MMPS, X_PP,Y_MV,FLOORH,              X_PP,1000,0},  // pick block 4
+                           {0,500,-45,0,0,0,0,0}, // pick  block 4
+                           {1,MMPS, X_PP,Y_MV,FLOORH+5*BLOCKH,    1000, Y_MV,0}, // up block 4 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+5*BLOCKH,    1000, -Y_MV,0}, // over block 4 
+                           {1,MMPS/2, X_PP,-Y_MV,FLOORH+3*BLOCKH,  1000, -Y_MV,0}, // place block 4
+                           {0,500,45,0,0,0,0,0}, // drop block 4
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+5*BLOCKH,    1000, -Y_MV,0}, // up clear block 4 
+                           
+                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       X_PP,1000,0},  // pick block 5
+                           {1,MMPS, X_PP,Y_MV,FLOORH,              X_PP,1000,0},  // pick block 5
+                           {0,500,-45,0,0,0,0,0}, // pick  block 5
+                           {1,MMPS, X_PP,Y_MV,FLOORH+6*BLOCKH,    1000, Y_MV,0}, // up block 5 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+6*BLOCKH,    1000, -Y_MV,0}, // over block 5 
+                           {1,MMPS/2, X_PP,-Y_MV,FLOORH+4*BLOCKH,  1000, -Y_MV,0}, // place block 5
+                           {0,500,45,0,0,0,0,0}, // drop block 5
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+6*BLOCKH,    1000, -Y_MV,0}}; // up clear block 5 
 
 void setup() {
   static int cmd_size = sizeof(cmd_array)/(SIZE_CMD_ARRAY*2);  // sizeof array.  2 bytes per int
@@ -396,13 +417,14 @@ void setup() {
 //  Serial.println(line1.p2.z,1); 
   // TUNE POT LOW AND HIGH VALUES
   // set_pot(pin,lowmv,lowang,highmv,highang)
-  jA.pot = set_pot(0 ,134,  0, 895, 178); 
-  jB.pot = set_pot(1 ,500,-90, 908,  0); 
-  jC.pot = set_pot(3 , 116,-90, 903, 90); 
-  jD.pot = set_pot(2 ,250, 60, 747, -60); 
-  jT.pot = set_pot(4 ,160, -90, 510, 0); 
-  jS.pot = set_pot(5 , 0, 0, 1023, 280);  // to tune
-
+  jA.pot = set_pot(0 ,134,  0/RADIAN, 895, 178/RADIAN); 
+  jB.pot = set_pot(1 ,500,-90/RADIAN, 908,  0/RADIAN); 
+  jC.pot = set_pot(3 , 116,-90/RADIAN, 903, 90/RADIAN); 
+  jD.pot = set_pot(2 ,250, 60/RADIAN, 747, -60/RADIAN); 
+  jT.pot = set_pot(4 ,160, -90/RADIAN, 510, 0/RADIAN); 
+  jS.pot = set_pot(5 , 0, 0/RADIAN, 1023, 280/RADIAN);  // to tune
+  jC.desired_angle = 0.0;  // initialize
+  test_machine.angClaw = 45.0/RADIAN;
   delay(10); // not sure why, but adafruit did it.
 }
 
@@ -431,6 +453,7 @@ void loop() {
   }
   old_state = test_machine.state;
   state_setup(test_machine);  // check if state changed at t   
+
   Serial.print("ms,");
   Serial.print(mst);
   Serial.print(", STATE,");
@@ -463,30 +486,28 @@ void loop() {
       pot_map(jT); // Turntable
       lineCD = forward_arm_kinematics(jA.pot_angle/RADIAN,jB.pot_angle/RADIAN,jD.pot_angle/RADIAN,jT.pot_angle/RADIAN, LEN_AB, LEN_BC, LEN_CD);
       inputArmLoop(test_machine, lineCD, 600);  // limit movement to 100 mm per second
+      angles = inverse_arm_kinematics(test_machine.at_ptC,LEN_AB,LEN_BC,test_machine.at_ptD); 
       break;
   }
-  angles = inverse_arm_kinematics(test_machine.at_ptC,LEN_AB,LEN_BC,test_machine.at_ptD); 
-  jA.desired_angle = angles[0]*RADIAN;
-  jB.desired_angle = angles[1]*RADIAN;
-  //jB.desired_angle = -(jA.desired_angle + angles[1]*RADIAN);  // Skystone Specific Adjustment
-  //if (jB.desired_angle < -35.0) {
-  //  jB.desired_angle = -35.0;  // limit the B joint weight from contacting base 
-  //} 
-  jT.desired_angle = angles[2]*RADIAN;
-  jD.desired_angle = angles[3]*RADIAN;
+  jA.desired_angle = angles[0];
+  jB.desired_angle = angles[1];
+  jT.desired_angle = angles[2];
+  jD.desired_angle = angles[3];
   jC.desired_angle = test_machine.angClaw;
 
   // ADD CODE HERE TO DRIVE SERVOS
+
   Serial.print(",C,");
   Serial.print(test_machine.at_ptC.x);
   Serial.print(",");
   Serial.print(test_machine.at_ptC.y);
   Serial.print(",");
   Serial.print(test_machine.at_ptC.z);
-  //logData(jA,'A');
-  //logData(jB,'B');
-  //logData(jC,'C');
-  logData(jD,'D');
+
+  logData(jA,'A');
+  logData(jB,'B');
+  logData(jC,'C');
+  //logData(jD,'D');
   logData(jT,'T');
   //logData(jS,'S');
   Serial.println(", END");
