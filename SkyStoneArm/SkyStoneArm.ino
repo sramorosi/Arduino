@@ -15,7 +15,7 @@
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 #define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
 
-#define SERIALOUT true  // Controlls SERIAL output. Set true when debugging. 
+#define SERIALOUT false  // Controlls SERIAL output. Set true when debugging. 
 
 #define LEN_AB 320.0     // Skystone AB arm in mm
 #define LEN_BC 320.0     // Skystone BC arm in mm
@@ -32,6 +32,9 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 struct machine_state skystone_arm; 
 
 struct joint jA,jB,jC,jD,jT,jS;
+
+static line lineCD;
+static float *angles;
 
 #define MMPS 200 // mm per second
 #define X_PP 280 // x mm for pick and place
@@ -91,13 +94,46 @@ void logData(joint jt,char jt_letter) {
   Serial.print(", p_value,");
   Serial.print(jt.pot_value);
 //  Serial.print(", Pang,");
-//  Serial.print(jt.pot_angle,1);
-//  Serial.print(", PrevAngle,");
-  //Serial.print(jt.previous_angle,1);
+//  Serial.print(jt.pot_angle*RADIAN,1);
   Serial.print(",dsr_ang,");
-  Serial.print(jt.desired_angle,1);
+  Serial.print(jt.desired_angle*RADIAN,1);
   Serial.print(", servo_ms,");
   Serial.print(jt.servo_ms);
+}
+void common_loop() {
+  angles = inverse_arm_kinematics(skystone_arm.at_ptC,LEN_AB,LEN_BC,skystone_arm.at_ptD); 
+  jA.desired_angle = angles[0];
+  jB.desired_angle = -(jA.desired_angle + angles[1]);  // Skystone Specific Adjustment
+  if (jB.desired_angle < -35.0/RADIAN) {
+    jB.desired_angle = -35.0/RADIAN;  // limit the B joint weight from contacting base 
+  } 
+  jT.desired_angle = angles[2];
+  jD.desired_angle = angles[3];
+  jC.desired_angle = skystone_arm.angClaw;
+ 
+  // GET SERVO Pulse width VALUES FROM ARM OUTPUT ANGLE
+  servo_map(jA);
+  servo_map(jB);  
+  servo_map(jC); 
+  servo_map(jD); 
+  servo_map(jT); 
+
+  #if A_ON
+    pwm.writeMicroseconds(jA.svo.digital_pin, jA.servo_ms); // Adafruit servo library
+  #endif
+  #if B_ON
+    pwm.writeMicroseconds(jB.svo.digital_pin, jB.servo_ms); // Adafruit servo library
+  #endif
+  #if C_ON
+    pwm.writeMicroseconds(jC.svo.digital_pin, jC.servo_ms); // Adafruit servo library
+  #endif
+  #if D_ON
+    pwm.writeMicroseconds(jD.svo.digital_pin, jD.servo_ms); // Adafruit servo library
+  #endif
+  #if T_ON
+    pwm.writeMicroseconds(jT.svo.digital_pin, jT.servo_ms); // Adafruit servo library
+  #endif  
+  return;
 }
 void setup() {
   static int cmd_size = sizeof(cmd_array)/(SIZE_CMD_ARRAY*2);  // sizeof array.  2 bytes per int
@@ -109,36 +145,6 @@ void setup() {
     Serial.print("cmd_size,");
     Serial.println(cmd_size);
   #endif
-
-  // TUNE POT LOW AND HIGH VALUES
-  // set_pot(pin,lowmv,lowang,highmv,highang)
-  jA.pot = set_pot(0 ,134,  0, 895, 178); 
-  jB.pot = set_pot(1 ,500,-90, 908,  0); 
-  jC.pot = set_pot(3 , 116,-90, 903, 90); 
-  jD.pot = set_pot(2 ,250, 60, 747, -60); 
-  jT.pot = set_pot(4 ,160, -90, 510, 0); 
-  jS.pot = set_pot(5 , 0, 0, 1023, 280);  // to tune
-
-  // TUNE SERVO LOW AND HIGH VALUES
-  // set_servo(pin,lowang,lowms,highang,highms)
-  jA.svo = set_servo(0,  0.0, 2250, 90.0, 1480); // high to low
-  jB.svo = set_servo(1, 0.0, 1500, 90.0, 850); // high to low
-  jC.svo = set_servo(2, -80.0, 600, 80.0, 2500); // 45 DEG = FULL OPEN, -45 = FULL CLOSE
-  // D = Wrist (top view rotation)
-  jD.svo = set_servo(3,  0.0,  1500, 90.0, 2175);
-  jT.svo = set_servo(4,-90.0,  890, 0.0, 1475);
-  //jS.svo = set_servo(3,  0.0,  400, 180.0, 2500);
-
-  // INITIALIZATION ANGLES FOR ARM
-  set_joint(jA, 110.0);  
-  set_joint(jB,  10.0);
-  set_joint(jC,  -70.0);
-  set_joint(jD,   80.0);
-  set_joint(jT,    -10.0); 
-  //set_joint(jS,   90.0);
-  
-  skystone_arm = setup_ms(LEN_BC, 0.0, LEN_AB,cmd_size);
-  skystone_arm.state = 1; // this should be overridden by S potentiometer
 
   pwm.begin();
   /*  Adafruit sevo library
@@ -161,14 +167,45 @@ void setup() {
   pwm.setPWMFreq(SERVO_FREQ);  // Analog servos run at ~50 Hz updates
 
   delay(10); // not sure why, but adafruit did it.
+
+  skystone_arm = setup_ms(LEN_BC, 0.0, LEN_AB,cmd_size);
+  skystone_arm.state = 1; // this should be overridden by S potentiometer
+
+  // TUNE POT LOW AND HIGH VALUES
+  // set_pot(pin,lowmv,lowang,highmv,highang)
+  jA.pot = set_pot(0 ,134,  0.0/RADIAN, 895, 178.0/RADIAN); 
+  jB.pot = set_pot(1 ,500,-90.0/RADIAN, 908,  0.0/RADIAN); 
+  jC.pot = set_pot(3 , 116,-90.0/RADIAN, 903, 90.0/RADIAN); 
+  jD.pot = set_pot(2 ,250, 60.0/RADIAN, 747, -60.0/RADIAN); 
+  jT.pot = set_pot(4 ,160, -90.0/RADIAN, 510, 0.0/RADIAN); 
+  jS.pot = set_pot(5 , 0, 0.0/RADIAN, 1023, 280.0/RADIAN);  // to tune
+
+  // TUNE SERVO LOW AND HIGH VALUES
+  // set_servo(pin,lowang,lowms,highang,highms)
+  jA.svo = set_servo(0,  0.0/RADIAN, 2250, 90.0/RADIAN, 1480); // high to low
+  jB.svo = set_servo(1, 0.0/RADIAN, 1500, 90.0/RADIAN, 850); // high to low
+  jC.svo = set_servo(2, -80.0/RADIAN, 600, 80.0/RADIAN, 2500); // 45 DEG = FULL OPEN, -45 = FULL CLOSE
+  // D = Wrist (top view rotation)
+  jD.svo = set_servo(3,  0.0/RADIAN,  1500, 90.0/RADIAN, 2175);
+  jT.svo = set_servo(4,-90.0/RADIAN,  890, 0.0/RADIAN, 1475);
+  //jS.svo = set_servo(3,  0.0/RADIAN,  400, 180.0/RADIAN, 2500);
+
+  // INITIALIZATION ANGLES FOR ARM
+  set_joint(jA, 130.0/RADIAN);  
+  set_joint(jB,  0.0/RADIAN);
+  set_joint(jC,  -70.0/RADIAN);
+  set_joint(jD,   80.0/RADIAN);
+  set_joint(jT,    -10.0/RADIAN); 
+  //set_joint(jS,   90.0/RADIAN);
+  
+  lineCD = forward_arm_kinematics(jA.desired_angle,jB.desired_angle,jD.desired_angle,jT.desired_angle, LEN_AB, LEN_BC, LEN_CD);
+  common_loop();
 }
 
 void loop() {
   //########### MAIN LOOP ############
-  static float *angles;
   static unsigned long mst;
   static int old_state;
-  static line lineCD;
 
   mst = millis();
   skystone_arm.dt = mst - skystone_arm.prior_mst; // delta time
@@ -223,43 +260,12 @@ void loop() {
       pot_map(jD); // Wrist
       pot_map(jT); // Turntable
       // get point C and D from input arm angles:
-      lineCD = forward_arm_kinematics(jA.desired_angle/RADIAN,jB.desired_angle/RADIAN,jD.desired_angle/RADIAN,jT.desired_angle/RADIAN, LEN_AB, LEN_BC, LEN_CD);
+      lineCD = forward_arm_kinematics(jA.desired_angle,jB.desired_angle,jD.desired_angle,jT.desired_angle, LEN_AB, LEN_BC, LEN_CD);
       inputArmLoop(skystone_arm, lineCD, 200); // limits movement given feed rate
       break;
   }
-  angles = inverse_arm_kinematics(skystone_arm.at_ptC,LEN_AB,LEN_BC,skystone_arm.at_ptD); 
-  jA.desired_angle = angles[0]*RADIAN;
-  jB.desired_angle = -(jA.desired_angle + angles[1]*RADIAN);  // Skystone Specific Adjustment
-  if (jB.desired_angle < -35.0) {
-    jB.desired_angle = -35.0;  // limit the B joint weight from contacting base 
-  } 
-  jT.desired_angle = angles[2]*RADIAN;
-  jD.desired_angle = angles[3]*RADIAN;
-  jC.desired_angle = skystone_arm.angClaw;
- 
-  // GET SERVO Pulse width VALUES FROM ARM OUTPUT ANGLE
-  servo_map(jA);
-  servo_map(jB);  
-  servo_map(jC); 
-  servo_map(jD); 
-  servo_map(jT); 
 
-  #if A_ON
-    pwm.writeMicroseconds(jA.svo.digital_pin, jA.servo_ms); // Adafruit servo library
-  #endif
-  #if B_ON
-    pwm.writeMicroseconds(jB.svo.digital_pin, jB.servo_ms); // Adafruit servo library
-  #endif
-  #if C_ON
-    pwm.writeMicroseconds(jC.svo.digital_pin, jC.servo_ms); // Adafruit servo library
-  #endif
-  #if D_ON
-    pwm.writeMicroseconds(jD.svo.digital_pin, jD.servo_ms); // Adafruit servo library
-  #endif
-  #if T_ON
-    pwm.writeMicroseconds(jT.svo.digital_pin, jT.servo_ms); // Adafruit servo library
-  #endif
-
+  common_loop();
   #if SERIALOUT
     Serial.print(",C,");
     Serial.print(skystone_arm.at_ptC.x);

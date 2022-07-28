@@ -50,9 +50,9 @@ static int cmd_array[][SIZE_CMD_ARRAY]={{1,100,300,0,250,0,0,0},
 struct potentiometer {
   int analog_pin; // Arduino analog pin number (0 - 5)
   int low_mv; // low voltage point, from 0 (0 Volts) to 1023 (5 Volts)
-  int low_ang; // corresponding angle at low voltage, in radians
+  float low_ang; // corresponding angle at low voltage, in radians
   int high_mv; // high voltage point, from 0 (0 Volts) to 1023 (5 Volts)
-  int high_ang; // corresponding angle at high voltage, in radians
+  float high_ang; // corresponding angle at high voltage, in radians
   // Note: low and high values do not need to be  at the extreems
   //  Tip:  Pick low and high angles that are easy to read/set/measure
   //      Values outside of the low and high will be extrapolated
@@ -82,7 +82,7 @@ struct joint {
 };
 
 // SETTERS,  INITIALIZERS
-potentiometer set_pot(int pin, int lowmv, int lowang, int highmv, int highang) {
+potentiometer set_pot(int pin, int lowmv, float lowang, int highmv, float highang) {
   // set_pot(pin,lowmv,lowang,highmv,highang)
   // Note: low and high values do not need to be  at the extreems
   struct potentiometer pot;
@@ -238,7 +238,7 @@ void pot_map(joint & jt) {
   // Map a potentiometer value in millivolts to an angle
   // map(value, fromLow, fromHigh, toLow, toHigh), uses integer math
   // NOTE: SCALE ANGLES *10 THEN DIVIDE BY 10.0 TO GET 0.1 PRECISION FROM POT VALUES
-  jt.pot_angle = map(jt.pot_value, jt.pot.low_mv, jt.pot.high_mv, jt.pot.low_ang*100, jt.pot.high_ang*100) / 100.0; 
+  jt.pot_angle = map(jt.pot_value, jt.pot.low_mv, jt.pot.high_mv, jt.pot.low_ang*1000, jt.pot.high_ang*1000) / 1000.0; 
   
   jt.desired_angle = jt.pot_angle;  // assume that the two are equal for now
 }

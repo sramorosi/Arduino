@@ -14,7 +14,7 @@
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 #define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
 
-#define SERIALOUT true  // Controlls SERIAL output. Set true when debugging. 
+#define SERIALOUT false  // Controlls SERIAL output. Set true when debugging. 
 
 #define LEN_AB 195.0     // SACC MK2 AB arm in mm
 #define LEN_BC 240.0     // SACC MK2 BC arm in mm
@@ -22,7 +22,7 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 
 // Booleans to turn on Servos. [bad code can damage servos. Use to isolate problems]
 #define A_ON true
-#define B_ON false
+#define B_ON true
 #define C_ON true
 #define D_ON true
 #define T_ON true
@@ -43,11 +43,11 @@ static float *angles;
 
 static int cmd_array[][SIZE_CMD_ARRAY]={{1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,  X_PP,1000,0}, // ready block 1
                            {0,2000,45,0,0,0,0,0}, // pause to pick block 1 - UNIQUE IN SEQUENCE
-                           {1,MMPS, X_PP,Y_MV,FLOORH,             X_PP,1000,0}, // down to block 2
+                           {1,MMPS, X_PP,Y_MV,FLOORH,             X_PP,1000,0}, // down to block 1
                            {0,500,-45,0,0,0,0,0}, // pick block 1
                            {1,MMPS, X_PP,Y_MV,FLOORH+2*BLOCKH,    1000, Y_MV,0}, // up block 1 
-                           {1,MMPS, X_PP-10,-Y_MV+10,FLOORH+2*BLOCKH,   1000, -Y_MV,0}, // over block 1 
-                           {1,MMPS, X_PP-20,-Y_MV+20,FLOORH,            1000, -Y_MV,0}, // place block 1 
+                           {1,MMPS, X_PP-0,-Y_MV+0,FLOORH+2*BLOCKH,   1000, -Y_MV,0}, // over block 1 
+                           {1,MMPS, X_PP-0,-Y_MV+0,FLOORH,            1000, -Y_MV,0}, // place block 1 
                            {0,500,45,0,0,0,0,0}, // drop block 1
                            {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,      1000, -Y_MV,0}, // up clear block 1 
                            
@@ -118,7 +118,7 @@ void common_loop() {
     case 0:  // DO NOTHING STATE
       break;
     case 1: // COMMAND CONTROL
-      jD.desired_angle = -jB.desired_angle-85.0;      // to be fixed
+      jD.desired_angle = -jB.desired_angle+jD.pot_angle;      // to be fixed
       break;
     case 2:  // MANUAL INPUT ARM CONTROL
       jD.desired_angle = -jB.desired_angle+jD.pot_angle;      // to be fixed
@@ -211,7 +211,7 @@ void setup() {
 
   // INITIALIZATION ANGLES FOR ARM
   set_joint(jA, 120.0/RADIAN);  
-  set_joint(jB, -90.0/RADIAN);
+  set_joint(jB, -120.0/RADIAN);
   set_joint(jC,   0.0);
   set_joint(jD,   80.0/RADIAN);
   set_joint(jT,    0.0/RADIAN); 
@@ -262,8 +262,8 @@ void loop() {
     case 0:  // DO NOTHING STATE
       break;
     case 1: // COMMAND CONTROL
+      jD.pot_angle = -90.0/RADIAN;      // to be fixed
       commands_loop(sacc_arm,cmd_array);
-      jD.desired_angle = 0.0;      // to be fixed
       break;
     case 2:  // MANUAL INPUT ARM CONTROL
       jA.pot_value = analogRead(jA.pot.analog_pin);  // read joint A
@@ -294,7 +294,7 @@ void loop() {
     Serial.print(sacc_arm.at_ptC.y);
     Serial.print(",");
     Serial.print(sacc_arm.at_ptC.z); 
-    logData(jA,'A');
+    //logData(jA,'A');
     //logData(jB,'B');
     //logData(jC,'C');
     //logData(jD,'D');
