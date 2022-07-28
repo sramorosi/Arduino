@@ -14,7 +14,7 @@
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 #define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
 
-#define SERIALOUT false  // Controlls SERIAL output. Set true when debugging. 
+#define SERIALOUT true  // Controlls SERIAL output. Set true when debugging. 
 
 #define LEN_AB 195.0     // SACC MK2 AB arm in mm
 #define LEN_BC 240.0     // SACC MK2 BC arm in mm
@@ -22,7 +22,7 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 
 // Booleans to turn on Servos. [bad code can damage servos. Use to isolate problems]
 #define A_ON true
-#define B_ON true
+#define B_ON false
 #define C_ON true
 #define D_ON true
 #define T_ON true
@@ -97,9 +97,11 @@ void logData(joint jt,char jt_letter) {
 //  Serial.print(", PrevAngle,");
   //Serial.print(jt.previous_angle,1);
   Serial.print(",dsr_ang,");
-  Serial.print(jt.desired_angle*RADIAN,1);
+  Serial.print(jt.desired_angle,1);
   Serial.print(", servo_ms,");
   Serial.print(jt.servo_ms);
+  Serial.print(", high_ang,");
+  Serial.print(jt.svo.high_ang);
 }
 
 void common_loop() {
@@ -215,7 +217,7 @@ void setup() {
   set_joint(jT,    0.0/RADIAN); 
   set_joint(jS,   90.0/RADIAN);
   
-  lineCD = forward_arm_kinematics(jA.desired_angle/RADIAN,jB.desired_angle/RADIAN,jD.desired_angle/RADIAN,jT.desired_angle/RADIAN, LEN_AB, LEN_BC, LEN_CD);
+  lineCD = forward_arm_kinematics(jA.desired_angle,jB.desired_angle,jD.desired_angle,jT.desired_angle, LEN_AB, LEN_BC, LEN_CD);
   common_loop();
 }
 
@@ -277,7 +279,7 @@ void loop() {
       pot_map(jD); // Wrist
       pot_map(jT); // Turntable
       // get point C and D from input arm angles:
-      lineCD = forward_arm_kinematics(jA.desired_angle/RADIAN,jB.desired_angle/RADIAN,jD.desired_angle/RADIAN,jT.desired_angle/RADIAN, LEN_AB, LEN_BC, LEN_CD);
+      lineCD = forward_arm_kinematics(jA.desired_angle,jB.desired_angle,jD.desired_angle,jT.desired_angle, LEN_AB, LEN_BC, LEN_CD);
       inputArmLoop(sacc_arm, lineCD, 200); // limits movement given feed rate
       jD.desired_angle = angles[3];
       break;
@@ -292,10 +294,10 @@ void loop() {
     Serial.print(sacc_arm.at_ptC.y);
     Serial.print(",");
     Serial.print(sacc_arm.at_ptC.z); 
-    //logData(jA,'A');
-    logData(jB,'B');
+    logData(jA,'A');
+    //logData(jB,'B');
     //logData(jC,'C');
-    logData(jD,'D');
+    //logData(jD,'D');
     //logData(jT,'T');
     //logData(jS,'S');
     Serial.println(", END");
