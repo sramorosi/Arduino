@@ -127,6 +127,12 @@ machine_state setup_ms(float xC, float yC, float zC, int cmd_size) { // starting
   return ms;
 }
 
+//  ###############  MATH FUNCTIONS ###########################
+float floatMap(float x, float in_min, float in_max, float out_min, float out_max)
+{
+  return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+}
+
 point rot_pt_y(point p1, float a) { // Rotate p1 about Y axis by a radians
   static point p2;
   p2.x = p1.x*cos(a)-p1.z*sin(a);
@@ -232,7 +238,7 @@ void pot_map(joint & jt) {
   // Map a potentiometer value in millivolts to an angle
   // map(value, fromLow, fromHigh, toLow, toHigh), uses integer math
   // NOTE: SCALE ANGLES *10 THEN DIVIDE BY 10.0 TO GET 0.1 PRECISION FROM POT VALUES
-  jt.pot_angle = map(jt.pot_value, jt.pot.low_mv, jt.pot.high_mv, jt.pot.low_ang*10, jt.pot.high_ang*10) / 10.0; 
+  jt.pot_angle = map(jt.pot_value, jt.pot.low_mv, jt.pot.high_mv, jt.pot.low_ang*100, jt.pot.high_ang*100) / 100.0; 
   
   jt.desired_angle = jt.pot_angle;  // assume that the two are equal for now
 }
@@ -241,8 +247,9 @@ void servo_map(joint & jt) {
   // Map an arm angle to servo microseconds
   // PLAIN, No Rate Limiting
   // Map joint angle to the servo microsecond value
-  jt.servo_ms = map(jt.desired_angle, jt.svo.low_ang, jt.svo.high_ang, jt.svo.low_ms, jt.svo.high_ms);
+  jt.servo_ms = floatMap(jt.desired_angle, jt.svo.low_ang, jt.svo.high_ang, jt.svo.low_ms, jt.svo.high_ms);
 }
+
 void go_to_next_cmd(machine_state & machine) {
   machine.n += 1; // go to the next command line
   machine.dist = 0.0;
@@ -333,8 +340,8 @@ void logData(joint jt,char jt_letter) {
 //  Serial.print(jt.pot_angle*RADIAN,1);
   Serial.print(",dsr_ang,");
   Serial.print(jt.desired_angle*RADIAN,1);
-//  Serial.print(", servo_ms,");
-//  Serial.print(jt.servo_ms);
+  Serial.print(", servo_ms,");
+  Serial.print(jt.servo_ms);
 } 
 
 #define LEN_AB 320.0     // Length of Input AB arm in mm
@@ -423,6 +430,12 @@ void setup() {
   jD.pot = set_pot(2 ,250, 60/RADIAN, 747, -60/RADIAN); 
   jT.pot = set_pot(4 ,160, -90/RADIAN, 510, 0/RADIAN); 
   jS.pot = set_pot(5 , 0, 0/RADIAN, 1023, 280/RADIAN);  // to tune
+
+  // TUNE SERVO LOW AND HIGH VALUES
+  // set_servo(pin,lowang,lowms,highang,highms)
+  jA.svo = set_servo(0,  0.0/RADIAN, 960, 170.0/RADIAN, 2200);
+  jB.svo = set_servo(1, 0.0/RADIAN, 1500, 80.0/RADIAN, 1070); // high to low
+
   jC.desired_angle = 0.0;  // initialize
   test_machine.angClaw = 45.0/RADIAN;
   delay(10); // not sure why, but adafruit did it.
@@ -496,6 +509,9 @@ void loop() {
   jC.desired_angle = test_machine.angClaw;
 
   // ADD CODE HERE TO DRIVE SERVOS
+  // GET SERVO Pulse width VALUES FROM ARM OUTPUT ANGLE
+  servo_map(jA);
+  servo_map(jB);  
 
   Serial.print(",C,");
   Serial.print(test_machine.at_ptC.x);
@@ -506,9 +522,9 @@ void loop() {
 
   logData(jA,'A');
   logData(jB,'B');
-  logData(jC,'C');
+  //logData(jC,'C');
   //logData(jD,'D');
-  logData(jT,'T');
+  //logData(jT,'T');
   //logData(jS,'S');
   Serial.println(", END");
 }
