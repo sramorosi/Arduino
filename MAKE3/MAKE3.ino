@@ -1,10 +1,6 @@
-/* ROBOT ARM CONTROL SOFTWARE FOR SKYSTONE ROBOT ARM
- *  By, SrAmo, July 2022
+/* ROBOT ARM CONTROL SOFTWARE FOR MAKE3 ROBOT ARM
+ *  By, SrAmo, August 2022
  *  
- *  Joint A, B and T are mechanically similar to SACC Make 2
- *  Joint C is the Claw on this Skystone Arm
- *  The angle of the hand is held parallel to the floor by a belt.
- *  Joint D is the Wrist rotation in the Top View, dosn't exist on Make 2
  *  
  */
 #include <Wire.h>
@@ -17,24 +13,27 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 
 #define SERIALOUT true  // Controlls SERIAL output. Set true when debugging. 
 
-#define LEN_AB 320.0     // Skystone AB arm in mm
-#define LEN_BC 320.0     // Skystone BC arm in mm
-#define LEN_CD 140.0
+void logData(joint jt,char jt_letter) {
+  Serial.print(",");
+  Serial.print(jt_letter);
+//  Serial.print(", p_value,");
+//  Serial.print(jt.pot_value);
+//  Serial.print(", Pang,");
+//  Serial.print(jt.pot_angle*RADIAN,1);
+  Serial.print(",");
+//  Serial.print(",dsr_ang,");
+  Serial.print(jt.desired_angle*RADIAN,1);
+//  Serial.print(", servo_ms,");
+//  Serial.print(jt.servo_ms);
+} 
 
-// Booleans to turn on Servos. [bad code can damage servos. Use to isolate problems]
-#define A_ON true
-#define B_ON true
-#define C_ON true
-#define D_ON true
-#define T_ON true
-#define S_ON false
+#define LEN_AB 350.0     // Length of Input AB arm in mm
+#define LEN_BC 380.0     // Length of Input BC arm in mm
+#define S_CG_X 180.0 
+#define S_CG_Y 40.0
 
-struct machine_state skystone_arm; 
-
-struct joint jA,jB,jC,jD,jT,jS;
-
-static point pointC;
-static float *angles;
+struct machine_state make3; 
+struct joint jA,jB,jC,jD,jCLAW,jT,jS;
 
 #define MMPS 200 // mm per second
 #define X_PP 280 // x mm for pick and place
@@ -90,68 +89,15 @@ static int cmd_array[][SIZE_CMD_ARRAY]={{1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,  ALPHA
                            {1,MMPS/2, X_PP,-Y_MV,FLOORH+4*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 5
                            {2,500,45,0,0,0,0}, // drop block 5
                            {1,MMPS, X_PP,-Y_MV,FLOORH+6*BLOCKH,    ALPHAC,ALPHADPLACE}}; // up clear block 5 
-                           
-void logData(joint jt,char jt_letter) {
-  Serial.print(",");
-  Serial.print(jt_letter);
-//  Serial.print(", p_value,");
-//  Serial.print(jt.pot_value);
-//  Serial.print(", Pang,");
-//  Serial.print(jt.pot_angle*RADIAN,1);
-  Serial.print(",");
-  Serial.print(jt.desired_angle*RADIAN,1);
-//  Serial.print(", servo_ms,");
-//  Serial.print(jt.servo_ms);
-}
 
-void common_loop() { // always in loop regardless of state
-  static point pointC;
-  // PRIOR TO HERE, Input recieved from Input Arm or Command Lines
-  //   For Input Arm,  Angles converted to Point C.
-  // MACHINE GOVENOR => limits the speed of motion OF POINT C.
-
-  // Convert point C to angles A,B,T
-  pointC = anglesToC(jA.pot_angle/RADIAN,jB.pot_angle/RADIAN,jT.pot_angle/RADIAN, LEN_AB, LEN_BC);
-  angles = inverse_arm_kinematics(pointC,LEN_AB,LEN_BC);  // get A,B,T
-  jA.desired_angle = angles[0];
-  jB.desired_angle = -(jA.desired_angle + angles[1]);  // Skystone Specific Adjustment
-  if (jB.desired_angle < -35.0/RADIAN) {
-    jB.desired_angle = -35.0/RADIAN;  // limit the B joint weight from contacting base 
-  } 
-  jT.desired_angle = angles[2];
-  jD.desired_angle = angles[3];
-  jC.desired_angle = skystone_arm.angClaw;
- 
-  // GET SERVO Pulse width VALUES FROM ARM OUTPUT ANGLE
-  servo_map(jA);
-  servo_map(jB);  
-  servo_map(jC); 
-  servo_map(jD); 
-  servo_map(jT); 
-
-  #if A_ON
-    pwm.writeMicroseconds(jA.svo.digital_pin, jA.servo_ms); // Adafruit servo library
-  #endif
-  #if B_ON
-    pwm.writeMicroseconds(jB.svo.digital_pin, jB.servo_ms); // Adafruit servo library
-  #endif
-  #if C_ON
-    pwm.writeMicroseconds(jC.svo.digital_pin, jC.servo_ms); // Adafruit servo library
-  #endif
-  #if D_ON
-    pwm.writeMicroseconds(jD.svo.digital_pin, jD.servo_ms); // Adafruit servo library
-  #endif
-  #if T_ON
-    pwm.writeMicroseconds(jT.svo.digital_pin, jT.servo_ms); // Adafruit servo library
-  #endif  
-  return;
-}
-
-void setup() {
+void setup() {  // put your setup code here, to run once:
   static int cmd_size = sizeof(cmd_array)/(SIZE_CMD_ARRAY*2);  // sizeof array.  2 bytes per int
-  #if SERIALOUT
-    Serial.begin(9600); // baud rate, slower is easier to read
-    while (!Serial) { // With Leonardo, if SERIALOUT = true then this is never true.
+  make3 = setup_ms(LEN_BC, 0.0, LEN_AB,cmd_size);
+  make3.state = 1; 
+
+  #if SERIALOUT  
+    Serial.begin(9600); // baud rate
+    while (!Serial) {
       ; // wait for serial port to connect. Needed for native USB port only
     } 
     Serial.print("cmd_size,");
@@ -177,81 +123,84 @@ void setup() {
    */
   pwm.setOscillatorFrequency(27000000);
   pwm.setPWMFreq(SERVO_FREQ);  // Analog servos run at ~50 Hz updates
-
-  delay(10); // not sure why, but adafruit did it.
-
-  skystone_arm = setup_ms(LEN_BC, 0.0, LEN_AB,cmd_size);
-  skystone_arm.state = 1; // this should be overridden by S potentiometer
-
+  
   // TUNE POT LOW AND HIGH VALUES
   // set_pot(pin,lowmv,lowang,highmv,highang)
-  jA.pot = set_pot(0 ,134,  0.0/RADIAN, 895, 178.0/RADIAN); 
-  jB.pot = set_pot(1 ,500,-90.0/RADIAN, 908,  0.0/RADIAN); 
-  jC.pot = set_pot(3 , 116,-90.0/RADIAN, 903, 90.0/RADIAN); 
-  jD.pot = set_pot(2 ,250, 60.0/RADIAN, 747, -60.0/RADIAN); 
-  jT.pot = set_pot(4 ,160, -90.0/RADIAN, 510, 0.0/RADIAN); 
-  jS.pot = set_pot(5 , 0, 0.0/RADIAN, 1023, 280.0/RADIAN);  // to tune
+  jA.pot = set_pot(0 ,134,  0/RADIAN, 895, 178/RADIAN); 
+  jB.pot = set_pot(1 ,500,-90/RADIAN, 908,  0/RADIAN); 
+  //jC.pot = set_pot(3 , 116,-90/RADIAN, 903, 90/RADIAN); // C will not have a pot on Make3
+  jD.pot = set_pot(2 ,250, 60/RADIAN, 747, -60/RADIAN); 
+  jT.pot = set_pot(4 ,160, -90/RADIAN, 510, 0/RADIAN); 
+  jCLAW.pot = set_pot(3 , 116,-90/RADIAN, 903, 90/RADIAN);
+  jS.pot = set_pot(5 , 0, 0/RADIAN, 1023, 280/RADIAN);  // to tune
 
   // TUNE SERVO LOW AND HIGH VALUES
   // set_servo(pin,lowang,lowms,highang,highms)
   jA.svo = set_servo(0,  0.0/RADIAN, 2250, 90.0/RADIAN, 1480); // high to low
   jB.svo = set_servo(1, 0.0/RADIAN, 1500, 90.0/RADIAN, 850); // high to low
   jC.svo = set_servo(2, -80.0/RADIAN, 600, 80.0/RADIAN, 2500); // 45 DEG = FULL OPEN, -45 = FULL CLOSE
-  // D = Wrist (top view rotation)
   jD.svo = set_servo(3,  0.0/RADIAN,  1500, 90.0/RADIAN, 2175);
-  jT.svo = set_servo(4,-90.0/RADIAN,  890, 0.0/RADIAN, 1475);
+  jCLAW.svo = set_servo(4,  0.0/RADIAN,  1500, 90.0/RADIAN, 2175);
+  jT.svo = set_servo(5,-90.0/RADIAN,  890, 0.0/RADIAN, 1475);
 
   // INITIALIZATION ANGLES FOR ARM
   set_joint(jA, 130.0/RADIAN);  
   set_joint(jB,  0.0/RADIAN);
   set_joint(jC,  -70.0/RADIAN);
-  set_joint(jD,   80.0/RADIAN);
+  set_joint(jD,   0.0/RADIAN);
   set_joint(jT,    -10.0/RADIAN); 
+  set_joint(jCLAW,  45.0/RADIAN); 
+  make3.angClaw = 45.0/RADIAN;
   
-  pointC = anglesToC(jA.desired_angle,jB.desired_angle,jT.desired_angle, LEN_AB, LEN_BC);
-  machineGovenor(skystone_arm, pointC, 200, 0.0, 0.0); // limits movement given feed rate
-  common_loop();
+  //ADD STUFF TO COMPUT POINTS
 }
 
 void loop() {  //########### MAIN LOOP ############
-  static int old_state;
-
+  // put your main code here, to run repeatedly:
+  static int old_state = 1;
+  static float *angles;
+  static float alphaB;
+  static point pointC;
+  static boolean govenorDone;
+  
   jS.pot_value = analogRead(jS.pot.analog_pin);  // read the selector
   if (jS.pot_value < 600) {
-    skystone_arm.state = 1;  // read command list
+    make3.state = 1;  // read command list
     if (old_state != 1) {
-      skystone_arm.initialize = true;
+      make3.initialize = true;
     }
   } else {
-    skystone_arm.state = 2;  // Manually control using input arm
+    make3.state = 2;  // Manually control using input arm
     if (old_state != 2) {
-      skystone_arm.initialize = true;
+      make3.initialize = true;
     }
   }
-  old_state = skystone_arm.state;
-  state_setup(skystone_arm);  // check if state changed
- 
-  #if SERIALOUT
-    // output for debugging
-    // Serial.print(val,digits)
-    Serial.print("mst,");
-    Serial.print(skystone_arm.prior_mst);
-    Serial.print(",STATE,");
-    Serial.print(skystone_arm.state);
-    Serial.print(",N,"); // command line
-    Serial.print(skystone_arm.n);
-    Serial.print(",CMD,");
-    Serial.print(cmd_array[skystone_arm.n][0]);
-  #endif
+  old_state = make3.state;
+  state_setup(make3);  // check if state changed
 
-  switch (skystone_arm.state) {
+  #if SERIALOUT
+    Serial.print("ms,");
+    Serial.print(make3.prior_mst);
+    Serial.print(", STATE,");
+    Serial.print(make3.state);
+    Serial.print(", N,"); // command line
+    Serial.print(make3.n);
+    Serial.print(", CMD,");
+    Serial.print(cmd_array[make3.n][0]); 
+  #endif
+  
+   switch (make3.state) {
     case 0:  // DO NOTHING STATE
       break;
     case 1: // COMMAND CONTROL
-      commands_loop(skystone_arm,cmd_array);
-      // GET OUTPUT ANGLES FROM INPUTS
+      commands_loop(make3,cmd_array);
+      
+      pointC =  clawToC(make3.at_ptG, make3.alphaC, make3.alphaD, S_CG_X, S_CG_Y);
+
+      angles = inverse_arm_kinematics(pointC,LEN_AB,LEN_BC); 
+      
       break;
-    case 2:  // MANUAL INPUT ARM CONTROL
+    case 2:  // MANUAL CONTROL  TO DO FIGURE OUT HOW TO MAP C AND D
       jA.pot_value = analogRead(jA.pot.analog_pin);  // read joint A
       jB.pot_value = analogRead(jB.pot.analog_pin);  // read joint B
       jC.pot_value = analogRead(jC.pot.analog_pin);  // read joint Claw
@@ -261,29 +210,53 @@ void loop() {  //########### MAIN LOOP ############
       pot_map(jA);
       pot_map(jB);
       pot_map(jC); 
-      skystone_arm.angClaw = jC.desired_angle;
+      make3.angClaw = jC.desired_angle;
       pot_map(jD); // Wrist
       pot_map(jT); // Turntable
-      // get point C and D from input arm angles:
-      pointC = anglesToC(jA.desired_angle,jB.desired_angle,jT.desired_angle, LEN_AB, LEN_BC);
-      machineGovenor(skystone_arm, pointC, 200, 0.0, 0.0); // limits movement given feed rate
+      pointC = anglesToC(jA.pot_angle/RADIAN,jB.pot_angle/RADIAN,jT.pot_angle/RADIAN, LEN_AB, LEN_BC);
+      govenorDone = machineGovenor(make3, pointC, 600, jC.pot_value, jD.pot_value); 
+      angles = inverse_arm_kinematics(pointC,LEN_AB,LEN_BC); 
       break;
   }
+  jA.desired_angle = angles[0]; // global A = local A
+  jB.desired_angle = angles[1];  // local B
+  alphaB = angles[0]+angles[1];  // global B
+  jT.desired_angle = angles[2];  // global T
+  jC.desired_angle = make3.alphaC-alphaB; // convert to a local C
+  jD.desired_angle = make3.alphaD -  jT.desired_angle; // convert to a local D
+  jCLAW.desired_angle = make3.angClaw;
 
-  common_loop();
+  // GET SERVO Pulse width VALUES FROM ARM OUTPUT ANGLE
+  servo_map(jA);
+  servo_map(jB);  
+  servo_map(jC); 
+  servo_map(jD); 
+  servo_map(jCLAW); 
+  servo_map(jT); 
+
+  pwm.writeMicroseconds(jA.svo.digital_pin, jA.servo_ms); // Adafruit servo library
+  pwm.writeMicroseconds(jB.svo.digital_pin, jB.servo_ms); // Adafruit servo library
+  pwm.writeMicroseconds(jC.svo.digital_pin, jC.servo_ms); // Adafruit servo library
+  pwm.writeMicroseconds(jD.svo.digital_pin, jD.servo_ms); // Adafruit servo library
+  pwm.writeMicroseconds(jCLAW.svo.digital_pin, jCLAW.servo_ms); // Adafruit servo library
+  pwm.writeMicroseconds(jT.svo.digital_pin, jT.servo_ms); // Adafruit servo library
+
   #if SERIALOUT
     Serial.print(",G,");
-    Serial.print(skystone_arm.at_ptG.x);
+    Serial.print(make3.at_ptG.x);
     Serial.print(",");
-    Serial.print(skystone_arm.at_ptG.y);
+    Serial.print(make3.at_ptG.y);
     Serial.print(",");
-    Serial.print(skystone_arm.at_ptG.z);
+    Serial.print(make3.at_ptG.z);
+  
     logData(jA,'A');
     logData(jB,'B');
     logData(jC,'C');
     logData(jD,'D');
     logData(jT,'T');
+    logData(jCLAW,'X');
     //logData(jS,'S');
     Serial.println(", END");
   #endif
 }
+//

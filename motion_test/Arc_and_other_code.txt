@@ -129,4 +129,45 @@ void servo_map_with_limits(joint & jt, float rate) {
   jt.previous_millis = millis();
 } */
 
+float * inverse_arm_kinematics(point c, float l_ab, float l_bc, point d) {
+  // Given arm system GroundT-TA-AB-BC-CD, where T (turntable) and A are [0,0,0]
+  // The location of joint C (c[])  AND CX IS POSITIVE ONLY
+  // The location of D (focal point) (where the claw should point)
+  // The lengths Length AB (l_ab) and Length BC (l_bc) are specified
+  // The joints A,B are on a turntable with rotation T parallel to Z through A
+  // With T_angle = 0, then joints A & B are parallel to the Y axis
+  // calculate the angles given pt C ***Inverse Kinematics***
+  // returns an array with [A_angle,B_angle,T_angle,D_angle] in radians
+  
+  float xy_len, c_len, sub_angle1, sub_angle2;
+  static float angles[4] = {0.0,0.0,0.0,0.0};  // [ A , B , T , D]
+  static point c_new;
+  
+  if (c.x > 0) { //The math only works for positive Cx
+    angles[2] = atan2(c.y,c.x);  // note: atan2 order; y,x
 
+    // compute the D angle based on where C and D are on the xy plane
+    xy_len = sqrt(pow((d.x-c.x),2.0)+pow((d.y-c.y),2.0)); 
+    if (xy_len > 0) {  
+      angles[3] = atan2((d.y-c.y),(d.x-c.x)) - angles[2];  // CD angle minus the turntable angle
+    } else {
+      angles[3] = 0.0; 
+    }
+  
+    c_new = rot_pt_z(c,-angles[2]); // rotate the point c onto the XZ plane using turntable angle
+    c_len = sqrt(pow(c_new.x,2)+pow(c_new.z,2));   // XZ plane
+  
+    if (c_len < l_ab+l_bc) {
+      // case where robot arm can reach
+      sub_angle1 = atan2(c_new.z,c_new.x);
+      sub_angle2 = acos((pow(c_len,2)+pow(l_ab,2)-pow(l_bc,2))/(2*c_len*l_ab));
+      angles[0] = sub_angle1 + sub_angle2;
+      angles[1] = acos((pow(l_bc,2)+pow(l_ab,2)-pow(c_len,2))/(2*l_bc*l_ab))-180.0/RADIAN;
+    } else {
+      // case where robot arm can not reach point... 
+      angles[0] = atan2(c_new.z,c_new.x); // a angle point in direction to go
+      angles[1] = 0.0; // b is straight
+    } 
+  }
+  return angles;  // return the angles
+}
