@@ -11,7 +11,7 @@
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 #define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
 
-#define SERIALOUT true  // Controlls SERIAL output. Set true when debugging. 
+#define SERIALOUT false  // Controlls SERIAL output. Set true when debugging. 
 
 void logData(joint jt,char jt_letter) {
   Serial.print(",");
@@ -35,19 +35,21 @@ void logData(joint jt,char jt_letter) {
 struct machine_state make3; 
 struct joint jA,jB,jC,jD,jCLAW,jT,jS;
 
-#define MMPS 200 // mm per second
-#define X_PP 280 // x mm for pick and place
+#define MMPS 100 // mm per second
+#define X_PP 250 // x mm for pick and place
 #define Y_MV 200 // y swing in mm
 #define FLOORH -80 // z of floor for picking
 #define BLOCKH 100 // block height mm
 #define ALPHAC -90 // global C angle, all moves
 #define ALPHADPICK 90 // global D for pick
 #define ALPHADPLACE 0 // global D for place
+#define CLAWCLOSE -30
+#define CLAWOPEN 50
 
 static int cmd_array[][SIZE_CMD_ARRAY]={{1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,  ALPHAC,ALPHADPICK}, // ready block 1
                            {2,200,45,0,0,0,0}, // pause to pick block 1 - UNIQUE IN SEQUENCE
                            {1,MMPS, X_PP,Y_MV,FLOORH,             ALPHAC,ALPHADPICK}, // down to block 2
-                           {2,500,-45,0,0,0,0}, // pick block 1
+                           {2,500,CLAWCLOSE,0,0,0,0}, // pick block 1
                            {1,MMPS, X_PP,Y_MV,FLOORH+2*BLOCKH,    ALPHAC,ALPHADPICK}, // up block 1 
                            {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 1 
                            {1,MMPS, X_PP,-Y_MV,FLOORH,            ALPHAC,ALPHADPLACE}, // place block 1 
@@ -56,7 +58,7 @@ static int cmd_array[][SIZE_CMD_ARRAY]={{1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,  ALPHA
                            
                            {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,      ALPHAC,ALPHADPICK}, // ready block 2
                            {1,MMPS, X_PP,Y_MV,FLOORH,             ALPHAC,ALPHADPICK}, // down to block 2
-                           {2,500,-45,0,0,0,0}, // pick block 2
+                           {2,500,CLAWCLOSE,0,0,0,0}, // pick block 2
                            {1,MMPS, X_PP,Y_MV,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPICK}, // up block 2 
                            {1,MMPS, X_PP,-Y_MV,FLOORH+3*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 2 
                            {1,MMPS/2, X_PP,-Y_MV,FLOORH+1*BLOCKH, ALPHAC,ALPHADPLACE}, // place block 2 
@@ -65,7 +67,7 @@ static int cmd_array[][SIZE_CMD_ARRAY]={{1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,  ALPHA
                            
                            {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // ready block 3
                            {1,MMPS, X_PP,Y_MV,FLOORH,              ALPHAC,ALPHADPICK}, // down to block 2
-                           {2,500,-45,0,0,0,0}, // pick  block 3
+                           {2,500,CLAWCLOSE,0,0,0,0}, // pick  block 3
                            {1,MMPS, X_PP,Y_MV,FLOORH+4*BLOCKH,     ALPHAC,ALPHADPICK}, // up block 3 
                            {1,MMPS, X_PP,-Y_MV,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 3 
                            {1,MMPS/2, X_PP,-Y_MV,FLOORH+2*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 3 
@@ -74,7 +76,7 @@ static int cmd_array[][SIZE_CMD_ARRAY]={{1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,  ALPHA
                            
                            {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // ready block 4
                            {1,MMPS, X_PP,Y_MV,FLOORH,              ALPHAC,ALPHADPICK},  // pick block 4
-                           {2,500,-45,0,0,0,0}, // pick  block 4
+                           {2,500,CLAWCLOSE,0,0,0,0}, // pick  block 4
                            {1,MMPS, X_PP,Y_MV,FLOORH+5*BLOCKH,     ALPHAC,ALPHADPICK}, // up block 4 
                            {1,MMPS, X_PP,-Y_MV,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 4 
                            {1,MMPS/2, X_PP,-Y_MV,FLOORH+3*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 4
@@ -83,7 +85,7 @@ static int cmd_array[][SIZE_CMD_ARRAY]={{1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,  ALPHA
                            
                            {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // pick block 5
                            {1,MMPS, X_PP,Y_MV,FLOORH,              ALPHAC,ALPHADPICK},  // pick block 5
-                           {2,500,-45,0,0,0,0}, // pick  block 5
+                           {2,500,CLAWCLOSE,0,0,0,0}, // pick  block 5
                            {1,MMPS, X_PP,Y_MV,FLOORH+6*BLOCKH,     ALPHAC,ALPHADPICK}, // up block 5 
                            {1,MMPS, X_PP,-Y_MV,FLOORH+6*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 5 
                            {1,MMPS/2, X_PP,-Y_MV,FLOORH+4*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 5
@@ -126,26 +128,26 @@ void setup() {  // put your setup code here, to run once:
   
   // TUNE POT LOW AND HIGH VALUES
   // set_pot(pin,lowmv,lowang,highmv,highang)
-  jA.pot = set_pot(0 ,134,  0/RADIAN, 895, 178/RADIAN); 
-  jB.pot = set_pot(1 ,500,-90/RADIAN, 908,  0/RADIAN); 
+  jA.pot = set_pot(0 ,134,  0/RADIAN, 895, 178/RADIAN); // good
+  jB.pot = set_pot(1 ,500,-90/RADIAN, 908,  0/RADIAN); // good
   //jC.pot = set_pot(3 , 116,-90/RADIAN, 903, 90/RADIAN); // C will not have a pot on Make3
   jD.pot = set_pot(2 ,250, 60/RADIAN, 747, -60/RADIAN); 
-  jT.pot = set_pot(4 ,160, -90/RADIAN, 510, 0/RADIAN); 
-  jCLAW.pot = set_pot(3 , 116,-90/RADIAN, 903, 90/RADIAN);
+  jT.pot = set_pot(4 ,166, -90/RADIAN, 960, 90/RADIAN); // better
+  jCLAW.pot = set_pot(3 , 250,-50/RADIAN, 750, 50/RADIAN);  // input arm is limited to 250 to 750
   jS.pot = set_pot(5 , 0, 0/RADIAN, 1023, 280/RADIAN);  // to tune
 
   // TUNE SERVO LOW AND HIGH VALUES
   // set_servo(pin,lowang,lowms,highang,highms)
-  jA.svo = set_servo(0,  0.0/RADIAN, 2250, 90.0/RADIAN, 1480); // high to low
-  jB.svo = set_servo(1, 0.0/RADIAN, 1500, 90.0/RADIAN, 850); // high to low
-  jC.svo = set_servo(2, -80.0/RADIAN, 600, 80.0/RADIAN, 2500); // 45 DEG = FULL OPEN, -45 = FULL CLOSE
-  jD.svo = set_servo(3,  0.0/RADIAN,  1500, 90.0/RADIAN, 2175);
-  jCLAW.svo = set_servo(4,  0.0/RADIAN,  1500, 90.0/RADIAN, 2175);
-  jT.svo = set_servo(5,-90.0/RADIAN,  890, 0.0/RADIAN, 1475);
+  jA.svo = set_servo(0,  2.2/RADIAN, 478, 176.8/RADIAN, 2390); // good
+  jB.svo = set_servo(1, 0.0/RADIAN, 500,-175.0/RADIAN, 2320); // good
+  jC.svo = set_servo(2, -153.5/RADIAN, 475, 5.0/RADIAN, 2156); // good.  TO DO REPLACE WITH 270 DEG SERVO
+  jD.svo = set_servo(3,  0.0/RADIAN,  1193, 90.0/RADIAN, 2115); // good
+  jCLAW.svo = set_servo(4, -50.0/RADIAN,  900, 50.0/RADIAN, 1900); // 45 DEG = FULL OPEN, -45 = FULL CLOSE
+  jT.svo = set_servo(5,  0.0/RADIAN,  1650, 90.0/RADIAN, 450); // good, SERVO RANGE: -57 TO +92 DEG
 
   // INITIALIZATION ANGLES FOR ARM
   set_joint(jA, 130.0/RADIAN);  
-  set_joint(jB,  0.0/RADIAN);
+  set_joint(jB,  -130.0/RADIAN);
   set_joint(jC,  -70.0/RADIAN);
   set_joint(jD,   0.0/RADIAN);
   set_joint(jT,    -10.0/RADIAN); 
@@ -198,34 +200,37 @@ void loop() {  //########### MAIN LOOP ############
       pointC =  clawToC(make3.at_ptG, make3.alphaC, make3.alphaD, S_CG_X, S_CG_Y);
 
       angles = inverse_arm_kinematics(pointC,LEN_AB,LEN_BC); 
+      jA.desired_angle = angles[0]; // global A = local A
+      jB.desired_angle = angles[1];  // local B
+      alphaB = angles[0]+angles[1];  // global B
+      jT.desired_angle = angles[2];  // global T
+      jC.desired_angle = make3.alphaC-alphaB; // convert to a local C
+      jD.desired_angle = make3.alphaD -  jT.desired_angle; // convert to a local D
+      jCLAW.desired_angle = make3.angClaw;
       
       break;
     case 2:  // MANUAL CONTROL  TO DO FIGURE OUT HOW TO MAP C AND D
       jA.pot_value = analogRead(jA.pot.analog_pin);  // read joint A
       jB.pot_value = analogRead(jB.pot.analog_pin);  // read joint B
-      jC.pot_value = analogRead(jC.pot.analog_pin);  // read joint Claw
       jD.pot_value = analogRead(jD.pot.analog_pin);  // read D wrist
       jT.pot_value = analogRead(jT.pot.analog_pin);  // read the turntable
+      jCLAW.pot_value = analogRead(jCLAW.pot.analog_pin);  // read joint Claw
     
+      // full speed method
       pot_map(jA);
       pot_map(jB);
-      pot_map(jC); 
-      make3.angClaw = jC.desired_angle;
-      pot_map(jD); // Wrist
+      pot_map(jCLAW); 
+      jC.desired_angle = -jA.desired_angle - jB.desired_angle-90.0/RADIAN;
+      //make3.angClaw = jC.desired_angle;
+      pot_map(jD); // Wrist  TO DO  subtract turntable?
       pot_map(jT); // Turntable
-      pointC = anglesToC(jA.pot_angle/RADIAN,jB.pot_angle/RADIAN,jT.pot_angle/RADIAN, LEN_AB, LEN_BC);
-      govenorDone = machineGovenor(make3, pointC, 600, jC.pot_value, jD.pot_value); 
-      angles = inverse_arm_kinematics(pointC,LEN_AB,LEN_BC); 
+
+      // TO DO  implement the Govenor method.  Need to point G method
+      //pointC = anglesToC(jA.pot_angle/RADIAN,jB.pot_angle/RADIAN,jT.pot_angle/RADIAN, LEN_AB, LEN_BC);
+      //govenorDone = machineGovenor(make3, pointC, 600, jC.pot_value, jD.pot_value); 
+      //angles = inverse_arm_kinematics(pointC,LEN_AB,LEN_BC); 
       break;
   }
-  jA.desired_angle = angles[0]; // global A = local A
-  jB.desired_angle = angles[1];  // local B
-  alphaB = angles[0]+angles[1];  // global B
-  jT.desired_angle = angles[2];  // global T
-  jC.desired_angle = make3.alphaC-alphaB; // convert to a local C
-  jD.desired_angle = make3.alphaD -  jT.desired_angle; // convert to a local D
-  jCLAW.desired_angle = make3.angClaw;
-
   // GET SERVO Pulse width VALUES FROM ARM OUTPUT ANGLE
   servo_map(jA);
   servo_map(jB);  
@@ -255,7 +260,7 @@ void loop() {  //########### MAIN LOOP ############
     logData(jD,'D');
     logData(jT,'T');
     logData(jCLAW,'X');
-    //logData(jS,'S');
+//      logData(jS,'S');
     Serial.println(", END");
   #endif
 }
