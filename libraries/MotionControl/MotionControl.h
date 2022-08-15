@@ -237,20 +237,43 @@ point clawToC(point g, float alphaC, float alphaD, float s_CG_x, float s_CG_y) {
 point anglesToC(float a, float b, float t, float l_ab, float l_bc){
   // Apply translations and rotations to get the C point
   //   Forward Kinematics
-  static point pB,pC;
-  static point pC2, pC3;  // temporary points for calculations 
+  static point pB,pC, pTemp;
   
-  pC.x = l_bc;   pC.y = 0.0;  pC.z = 0.0;
   pB.x = l_ab;   pB.y = 0.0;  pB.z = 0.0;
+  pC.x = l_bc;   pC.y = 0.0;  pC.z = 0.0;
   
-  pC2 = rot_pt_y(pC,b);
-  pC3 = add_pts(pB,pC2);
-  pC2 = rot_pt_y(pC3,a); // reuse pC2
-  pC3 = rot_pt_z(pC2,t);  // reuse pC3
+  pTemp = rot_pt_y(pC,b);  // rotate b
+  pC = add_pts(pB,pTemp);  // add to AB arm
+  pTemp = rot_pt_y(pC,a); // rotate a
+  pC = rot_pt_z(pTemp,t);  // rotate turntable
 
-  return pC3;
+  return pC;
 }
+line anglesToG(float a, float b, float t, float c, float d, float l_ab, float l_bc, float sCGx, float sCGy) {
+  //  Apply translations and rotations to get from point C to G
+  //   Forward Kinematics
+  static point pB,pC, pG, pTemp;
+  static line lCG;
+  
+  pB.x = l_ab;   pB.y = 0.0;  pB.z = 0.0;
+  pC.x = l_bc;   pC.y = 0.0;  pC.z = 0.0;
+  pG.x = sCGx;   pG.y = 0.0;  pG.z = sCGy;
 
+  pTemp = rot_pt_x(pG,d);  // rotate d
+  pG = rot_pt_y(pTemp,c);  // rotate c
+  pTemp = add_pts(pC,pG);  // add G to BC arm
+  pG = rot_pt_y(pTemp,b);  // rotate b
+  pTemp = add_pts(pB,pG);     // add to AB arm
+  pG = rot_pt_y(pTemp,a); // rotate a
+  lCG.p2 = rot_pt_z(pG,t);  // rotate turntable
+
+  pTemp = rot_pt_y(pC,b);  // rotate b
+  pC = add_pts(pB,pTemp);  // add to AB arm
+  pTemp = rot_pt_y(pC,a); // rotate a
+  lCG.p1 = rot_pt_z(pTemp,t);  // rotate turntable
+
+  return lCG;
+}
 void pot_map(joint & jt) {
   // Map a potentiometer value in millivolts to an angle
   // map(value, fromLow, fromHigh, toLow, toHigh), USES INTEGER MATH
@@ -314,6 +337,7 @@ void commands_loop(machine_state & machine, int cmds[][SIZE_CMD_ARRAY]) {
     switch (cmds[machine.n][0]) {
       case 0: // DELAY (timer)
         if ((millis()-machine.timerStart) > cmds[machine.n][1]) {
+          machine.prior_mst = millis();
           go_to_next_cmd(machine);        
         }
         break;
@@ -336,6 +360,7 @@ void commands_loop(machine_state & machine, int cmds[][SIZE_CMD_ARRAY]) {
        case 2: // Claw move, with timer to give claw time to move.
          machine.angClaw = cmds[machine.n][2]/RADIAN;  // set the claw angle
          if ((millis()-machine.timerStart) > cmds[machine.n][1]) {
+            machine.prior_mst = millis();
             go_to_next_cmd(machine);        
           }
          break;
@@ -378,59 +403,63 @@ struct machine_state test_machine;
 struct joint jA,jB,jC,jD,jCLAW,jT,jS;
 
 #define MMPS 200 // mm per second
-#define X_PP 280 // x mm for pick and place
+#define X_PP 250 // x mm for pick and place
 #define Y_MV 200 // y swing in mm
 #define FLOORH -80 // z of floor for picking
 #define BLOCKH 100 // block height mm
-#define ALPHAC -90 // global C angle
+#define ALPHAC -90 // global C angle, all moves
 #define ALPHADPICK 90 // global D for pick
 #define ALPHADPLACE 0 // global D for place
+#define CLAWCLOSE -30
+#define CLAWOPEN 50
 
 static int cmd_array[][SIZE_CMD_ARRAY]={{1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,  ALPHAC,ALPHADPICK}, // ready block 1
                            {2,200,45,0,0,0,0}, // pause to pick block 1 - UNIQUE IN SEQUENCE
                            {1,MMPS, X_PP,Y_MV,FLOORH,             ALPHAC,ALPHADPICK}, // down to block 2
-                           {2,500,-45,0,0,0,0}, // pick block 1
-                           {1,MMPS, X_PP,Y_MV,FLOORH+2*BLOCKH,    ALPHAC,ALPHADPICK}, // up block 1 
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 1 
+                           {2,500,CLAWCLOSE,0,0,0,0}, // pick block 1
+                           //{1,MMPS, X_PP,Y_MV,FLOORH+1*BLOCKH,    ALPHAC,ALPHADPICK}, // up block 1 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+1*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 1 
                            {1,MMPS, X_PP,-Y_MV,FLOORH,            ALPHAC,ALPHADPLACE}, // place block 1 
-                           {2,500,45,0,0,0,0}, // drop block 1
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // up clear block 1 
+                           {2,500,CLAWOPEN,0,0,0,0}, // drop block 1
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+1*BLOCKH,   ALPHAC,ALPHADPLACE}, // up clear block 1 
                            
                            {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,      ALPHAC,ALPHADPICK}, // ready block 2
                            {1,MMPS, X_PP,Y_MV,FLOORH,             ALPHAC,ALPHADPICK}, // down to block 2
-                           {2,500,-45,0,0,0,0}, // pick block 2
-                           {1,MMPS, X_PP,Y_MV,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPICK}, // up block 2 
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+3*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 2 
+                           {2,500,CLAWCLOSE,0,0,0,0}, // pick block 2
+                           //{1,MMPS, X_PP,Y_MV,FLOORH+2*BLOCKH,    ALPHAC,ALPHADPICK}, // up block 2 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 2 
                            {1,MMPS/2, X_PP,-Y_MV,FLOORH+1*BLOCKH, ALPHAC,ALPHADPLACE}, // place block 2 
-                           {2,500,45,0,0,0,0}, // drop block 2
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+3*BLOCKH,   ALPHAC,ALPHADPLACE}, // up clear block 2 
+                           {2,500,CLAWOPEN,0,0,0,0}, // drop block 2
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // up clear block 2 
                            
                            {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // ready block 3
                            {1,MMPS, X_PP,Y_MV,FLOORH,              ALPHAC,ALPHADPICK}, // down to block 2
-                           {2,500,-45,0,0,0,0}, // pick  block 3
-                           {1,MMPS, X_PP,Y_MV,FLOORH+4*BLOCKH,     ALPHAC,ALPHADPICK}, // up block 3 
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 3 
+                           {2,500,CLAWCLOSE,0,0,0,0}, // pick  block 3
+                           //{1,MMPS, X_PP,Y_MV,FLOORH+3*BLOCKH,     ALPHAC,ALPHADPICK}, // up block 3 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 3 
                            {1,MMPS/2, X_PP,-Y_MV,FLOORH+2*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 3 
-                           {2,500,45,0,0,0,0}, // drop block 3
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 3 
+                           {2,500,CLAWOPEN,0,0,0,0}, // drop block 3
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 3 
                            
                            {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // ready block 4
                            {1,MMPS, X_PP,Y_MV,FLOORH,              ALPHAC,ALPHADPICK},  // pick block 4
-                           {2,500,-45,0,0,0,0}, // pick  block 4
-                           {1,MMPS, X_PP,Y_MV,FLOORH+5*BLOCKH,     ALPHAC,ALPHADPICK}, // up block 4 
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 4 
+                           {2,500,CLAWCLOSE,0,0,0,0}, // pick  block 4
+                           //{1,MMPS, X_PP,Y_MV,FLOORH+4*BLOCKH,     ALPHAC,ALPHADPICK}, // up block 4 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 4 
                            {1,MMPS/2, X_PP,-Y_MV,FLOORH+3*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 4
-                           {2,500,45,0,0,0,0}, // drop block 4
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 4 
+                           {2,500,CLAWOPEN,0,0,0,0}, // drop block 4
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 4 
                            
                            {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // pick block 5
                            {1,MMPS, X_PP,Y_MV,FLOORH,              ALPHAC,ALPHADPICK},  // pick block 5
-                           {2,500,-45,0,0,0,0}, // pick  block 5
-                           {1,MMPS, X_PP,Y_MV,FLOORH+6*BLOCKH,     ALPHAC,ALPHADPICK}, // up block 5 
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+6*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 5 
+                           {2,500,CLAWCLOSE,0,0,0,0}, // pick  block 5
+                           //{1,MMPS, X_PP,Y_MV,FLOORH+5*BLOCKH,     ALPHAC,ALPHADPICK}, // up block 5 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 5 
                            {1,MMPS/2, X_PP,-Y_MV,FLOORH+4*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 5
-                           {2,500,45,0,0,0,0}, // drop block 5
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+6*BLOCKH,    ALPHAC,ALPHADPLACE}}; // up clear block 5 
+                           {2,500,CLAWOPEN,0,0,0,0}, // drop block 5
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 5 
+
+                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK}};  // pick block ready
 
 void setup() {
   static int cmd_size = sizeof(cmd_array)/(SIZE_CMD_ARRAY*2);  // sizeof array.  2 bytes per int

@@ -11,7 +11,7 @@
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 #define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
 
-#define SERIALOUT false  // Controlls SERIAL output. Set true when debugging. 
+#define SERIALOUT true  // Controlls SERIAL output. Set true when debugging. 
 
 void logData(joint jt,char jt_letter) {
   Serial.print(",");
@@ -35,7 +35,7 @@ void logData(joint jt,char jt_letter) {
 struct machine_state make3; 
 struct joint jA,jB,jC,jD,jCLAW,jT,jS;
 
-#define MMPS 100 // mm per second
+#define MMPS 200 // mm per second
 #define X_PP 250 // x mm for pick and place
 #define Y_MV 200 // y swing in mm
 #define FLOORH -80 // z of floor for picking
@@ -50,47 +50,50 @@ static int cmd_array[][SIZE_CMD_ARRAY]={{1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,  ALPHA
                            {2,200,45,0,0,0,0}, // pause to pick block 1 - UNIQUE IN SEQUENCE
                            {1,MMPS, X_PP,Y_MV,FLOORH,             ALPHAC,ALPHADPICK}, // down to block 2
                            {2,500,CLAWCLOSE,0,0,0,0}, // pick block 1
-                           {1,MMPS, X_PP,Y_MV,FLOORH+2*BLOCKH,    ALPHAC,ALPHADPICK}, // up block 1 
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 1 
+                           //{1,MMPS, X_PP,Y_MV,FLOORH+1*BLOCKH,    ALPHAC,ALPHADPICK}, // up block 1 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+1*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 1 
                            {1,MMPS, X_PP,-Y_MV,FLOORH,            ALPHAC,ALPHADPLACE}, // place block 1 
-                           {2,500,45,0,0,0,0}, // drop block 1
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // up clear block 1 
+                           {2,500,CLAWOPEN,0,0,0,0}, // drop block 1
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+1*BLOCKH,   ALPHAC,ALPHADPLACE}, // up clear block 1 
                            
                            {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,      ALPHAC,ALPHADPICK}, // ready block 2
                            {1,MMPS, X_PP,Y_MV,FLOORH,             ALPHAC,ALPHADPICK}, // down to block 2
                            {2,500,CLAWCLOSE,0,0,0,0}, // pick block 2
-                           {1,MMPS, X_PP,Y_MV,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPICK}, // up block 2 
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+3*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 2 
+                           //{1,MMPS, X_PP,Y_MV,FLOORH+2*BLOCKH,    ALPHAC,ALPHADPICK}, // up block 2 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 2 
                            {1,MMPS/2, X_PP,-Y_MV,FLOORH+1*BLOCKH, ALPHAC,ALPHADPLACE}, // place block 2 
-                           {2,500,45,0,0,0,0}, // drop block 2
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+3*BLOCKH,   ALPHAC,ALPHADPLACE}, // up clear block 2 
+                           {2,500,CLAWOPEN,0,0,0,0}, // drop block 2
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // up clear block 2 
                            
                            {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // ready block 3
                            {1,MMPS, X_PP,Y_MV,FLOORH,              ALPHAC,ALPHADPICK}, // down to block 2
                            {2,500,CLAWCLOSE,0,0,0,0}, // pick  block 3
-                           {1,MMPS, X_PP,Y_MV,FLOORH+4*BLOCKH,     ALPHAC,ALPHADPICK}, // up block 3 
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 3 
+                           //{1,MMPS, X_PP,Y_MV,FLOORH+3*BLOCKH,     ALPHAC,ALPHADPICK}, // up block 3 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 3 
                            {1,MMPS/2, X_PP,-Y_MV,FLOORH+2*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 3 
-                           {2,500,45,0,0,0,0}, // drop block 3
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 3 
+                           {2,500,CLAWOPEN,0,0,0,0}, // drop block 3
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 3 
                            
                            {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // ready block 4
                            {1,MMPS, X_PP,Y_MV,FLOORH,              ALPHAC,ALPHADPICK},  // pick block 4
                            {2,500,CLAWCLOSE,0,0,0,0}, // pick  block 4
-                           {1,MMPS, X_PP,Y_MV,FLOORH+5*BLOCKH,     ALPHAC,ALPHADPICK}, // up block 4 
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 4 
+                           //{1,MMPS, X_PP,Y_MV,FLOORH+4*BLOCKH,     ALPHAC,ALPHADPICK}, // up block 4 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 4 
                            {1,MMPS/2, X_PP,-Y_MV,FLOORH+3*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 4
-                           {2,500,45,0,0,0,0}, // drop block 4
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 4 
+                           {2,500,CLAWOPEN,0,0,0,0}, // drop block 4
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 4 
                            
                            {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // pick block 5
                            {1,MMPS, X_PP,Y_MV,FLOORH,              ALPHAC,ALPHADPICK},  // pick block 5
                            {2,500,CLAWCLOSE,0,0,0,0}, // pick  block 5
-                           {1,MMPS, X_PP,Y_MV,FLOORH+6*BLOCKH,     ALPHAC,ALPHADPICK}, // up block 5 
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+6*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 5 
+                           //{1,MMPS, X_PP,Y_MV,FLOORH+5*BLOCKH,     ALPHAC,ALPHADPICK}, // up block 5 
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 5 
                            {1,MMPS/2, X_PP,-Y_MV,FLOORH+4*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 5
-                           {2,500,45,0,0,0,0}, // drop block 5
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+6*BLOCKH,    ALPHAC,ALPHADPLACE}}; // up clear block 5 
+                           {2,500,CLAWOPEN,0,0,0,0}, // drop block 5
+                           {1,MMPS, X_PP,-Y_MV,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 5 
+
+                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK}};  // pick block ready
+
 
 void setup() {  // put your setup code here, to run once:
   static int cmd_size = sizeof(cmd_array)/(SIZE_CMD_ARRAY*2);  // sizeof array.  2 bytes per int
@@ -163,6 +166,7 @@ void loop() {  //########### MAIN LOOP ############
   static float *angles;
   static float alphaB;
   static point pointC;
+  static line lineCG;
   static boolean govenorDone;
   
   jS.pot_value = analogRead(jS.pot.analog_pin);  // read the selector
@@ -216,7 +220,7 @@ void loop() {  //########### MAIN LOOP ############
       jT.pot_value = analogRead(jT.pot.analog_pin);  // read the turntable
       jCLAW.pot_value = analogRead(jCLAW.pot.analog_pin);  // read joint Claw
     
-      // full speed method
+      // Direct (full speed) method
       pot_map(jA);
       pot_map(jB);
       pot_map(jCLAW); 
@@ -226,9 +230,15 @@ void loop() {  //########### MAIN LOOP ############
       pot_map(jT); // Turntable
 
       // TO DO  implement the Govenor method.  Need to point G method
-      //pointC = anglesToC(jA.pot_angle/RADIAN,jB.pot_angle/RADIAN,jT.pot_angle/RADIAN, LEN_AB, LEN_BC);
-      //govenorDone = machineGovenor(make3, pointC, 600, jC.pot_value, jD.pot_value); 
-      //angles = inverse_arm_kinematics(pointC,LEN_AB,LEN_BC); 
+      lineCG = anglesToG(jA.desired_angle,jB.desired_angle,jT.desired_angle,jC.desired_angle,jD.desired_angle, LEN_AB, LEN_BC,S_CG_X,S_CG_Y);
+      govenorDone = machineGovenor(make3, lineCG.p2, 600, jC.desired_angle, jD.desired_angle); 
+      jC.desired_angle = make3.alphaC; // goverened c
+      jD.desired_angle = make3.alphaD; // goverened d
+      angles = inverse_arm_kinematics(lineCG.p1,LEN_AB,LEN_BC); 
+      jA.desired_angle = angles[0];
+      jB.desired_angle = angles[1];
+      jT.desired_angle = angles[2];
+
       break;
   }
   // GET SERVO Pulse width VALUES FROM ARM OUTPUT ANGLE
