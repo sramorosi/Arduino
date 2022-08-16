@@ -11,7 +11,7 @@
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 #define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
 
-#define SERIALOUT true  // Controlls SERIAL output. Set true when debugging. 
+#define SERIALOUT false  // Controlls SERIAL output. Set true when debugging. 
 
 void logData(joint jt,char jt_letter) {
   Serial.print(",");
@@ -23,8 +23,8 @@ void logData(joint jt,char jt_letter) {
   Serial.print(",");
 //  Serial.print(",dsr_ang,");
   Serial.print(jt.desired_angle*RADIAN,1);
-//  Serial.print(", servo_ms,");
-//  Serial.print(jt.servo_ms);
+  Serial.print(", servo_ms,");
+  Serial.print(jt.servo_ms);
 } 
 
 #define LEN_AB 350.0     // Length of Input AB arm in mm
@@ -35,7 +35,7 @@ void logData(joint jt,char jt_letter) {
 struct machine_state make3; 
 struct joint jA,jB,jC,jD,jCLAW,jT,jS;
 
-#define MMPS 200 // mm per second
+#define MMPS 400 // mm per second
 #define X_PP 250 // x mm for pick and place
 #define Y_MV 200 // y swing in mm
 #define FLOORH -80 // z of floor for picking
@@ -46,11 +46,11 @@ struct joint jA,jB,jC,jD,jCLAW,jT,jS;
 #define CLAWCLOSE -30
 #define CLAWOPEN 50
 
-static int cmd_array[][SIZE_CMD_ARRAY]={{1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,  ALPHAC,ALPHADPICK}, // ready block 1
-                           {2,200,45,0,0,0,0}, // pause to pick block 1 - UNIQUE IN SEQUENCE
+static int cmd_array[][SIZE_CMD_ARRAY]={{2,100,CLAWOPEN,0,0,0,0},
+                           {1,100, X_PP,Y_MV,FLOORH+BLOCKH,  ALPHAC,ALPHADPICK}, // ready block 1
+                           {2,1000,CLAWOPEN,0,0,0,0}, // pause to pick block 1 - UNIQUE IN SEQUENCE
                            {1,MMPS, X_PP,Y_MV,FLOORH,             ALPHAC,ALPHADPICK}, // down to block 2
                            {2,500,CLAWCLOSE,0,0,0,0}, // pick block 1
-                           //{1,MMPS, X_PP,Y_MV,FLOORH+1*BLOCKH,    ALPHAC,ALPHADPICK}, // up block 1 
                            {1,MMPS, X_PP,-Y_MV,FLOORH+1*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 1 
                            {1,MMPS, X_PP,-Y_MV,FLOORH,            ALPHAC,ALPHADPLACE}, // place block 1 
                            {2,500,CLAWOPEN,0,0,0,0}, // drop block 1
@@ -59,40 +59,44 @@ static int cmd_array[][SIZE_CMD_ARRAY]={{1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,  ALPHA
                            {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,      ALPHAC,ALPHADPICK}, // ready block 2
                            {1,MMPS, X_PP,Y_MV,FLOORH,             ALPHAC,ALPHADPICK}, // down to block 2
                            {2,500,CLAWCLOSE,0,0,0,0}, // pick block 2
-                           //{1,MMPS, X_PP,Y_MV,FLOORH+2*BLOCKH,    ALPHAC,ALPHADPICK}, // up block 2 
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 2 
+                           {1,MMPS, X_PP,-Y_MV+40,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 2 
                            {1,MMPS/2, X_PP,-Y_MV,FLOORH+1*BLOCKH, ALPHAC,ALPHADPLACE}, // place block 2 
                            {2,500,CLAWOPEN,0,0,0,0}, // drop block 2
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // up clear block 2 
+                           {1,MMPS, X_PP,-Y_MV+40,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // up clear block 2 
                            
                            {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // ready block 3
                            {1,MMPS, X_PP,Y_MV,FLOORH,              ALPHAC,ALPHADPICK}, // down to block 2
                            {2,500,CLAWCLOSE,0,0,0,0}, // pick  block 3
-                           //{1,MMPS, X_PP,Y_MV,FLOORH+3*BLOCKH,     ALPHAC,ALPHADPICK}, // up block 3 
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 3 
+                           {1,MMPS, X_PP,-Y_MV+40,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 3 
                            {1,MMPS/2, X_PP,-Y_MV,FLOORH+2*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 3 
                            {2,500,CLAWOPEN,0,0,0,0}, // drop block 3
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 3 
+                           {1,MMPS, X_PP,-Y_MV+60,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 3 
                            
                            {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // ready block 4
                            {1,MMPS, X_PP,Y_MV,FLOORH,              ALPHAC,ALPHADPICK},  // pick block 4
                            {2,500,CLAWCLOSE,0,0,0,0}, // pick  block 4
-                           //{1,MMPS, X_PP,Y_MV,FLOORH+4*BLOCKH,     ALPHAC,ALPHADPICK}, // up block 4 
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 4 
+                           {1,MMPS, X_PP,-Y_MV+40,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 4 
                            {1,MMPS/2, X_PP,-Y_MV,FLOORH+3*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 4
                            {2,500,CLAWOPEN,0,0,0,0}, // drop block 4
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 4 
+                           {1,MMPS, X_PP,-Y_MV+60,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 4 
                            
                            {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // pick block 5
                            {1,MMPS, X_PP,Y_MV,FLOORH,              ALPHAC,ALPHADPICK},  // pick block 5
                            {2,500,CLAWCLOSE,0,0,0,0}, // pick  block 5
-                           //{1,MMPS, X_PP,Y_MV,FLOORH+5*BLOCKH,     ALPHAC,ALPHADPICK}, // up block 5 
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 5 
+                           {1,MMPS, X_PP,-Y_MV+50,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 5 
                            {1,MMPS/2, X_PP,-Y_MV,FLOORH+4*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 5
                            {2,500,CLAWOPEN,0,0,0,0}, // drop block 5
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 5 
+                           {1,MMPS, X_PP,-Y_MV+80,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 5 
+                           
+                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // pick block 6
+                           {1,MMPS, X_PP,Y_MV,FLOORH,              ALPHAC,ALPHADPICK},  // pick block 6
+                           {2,500,CLAWCLOSE,0,0,0,0}, // pick  block 6
+                           {1,MMPS-50, X_PP,-Y_MV+60,FLOORH+6*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 6 
+                           {1,MMPS/2, X_PP,-Y_MV,FLOORH+5*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 6
+                           {2,500,CLAWOPEN,0,0,0,0}, // drop block 6
+                           {1,MMPS, X_PP,-Y_MV+100,FLOORH+6*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 6 
 
-                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK}};  // pick block ready
+                           {1,MMPS-100, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK}};  // pick block ready
 
 
 void setup() {  // put your setup code here, to run once:
@@ -168,6 +172,7 @@ void loop() {  //########### MAIN LOOP ############
   static point pointC;
   static line lineCG;
   static boolean govenorDone;
+  static float testb;
   
   jS.pot_value = analogRead(jS.pot.analog_pin);  // read the selector
   if (jS.pot_value < 600) {
@@ -225,19 +230,23 @@ void loop() {  //########### MAIN LOOP ############
       pot_map(jB);
       pot_map(jCLAW); 
       jC.desired_angle = -jA.desired_angle - jB.desired_angle-90.0/RADIAN;
-      //make3.angClaw = jC.desired_angle;
+      make3.angClaw = jC.desired_angle;
       pot_map(jD); // Wrist  TO DO  subtract turntable?
       pot_map(jT); // Turntable
-
-      // TO DO  implement the Govenor method.  Need to point G method
+      
       lineCG = anglesToG(jA.desired_angle,jB.desired_angle,jT.desired_angle,jC.desired_angle,jD.desired_angle, LEN_AB, LEN_BC,S_CG_X,S_CG_Y);
-      govenorDone = machineGovenor(make3, lineCG.p2, 600, jC.desired_angle, jD.desired_angle); 
-      jC.desired_angle = make3.alphaC; // goverened c
+      govenorDone = machineGovenor(make3, lineCG.p2, 200, jC.desired_angle, jD.desired_angle); 
+
+      pointC = clawToC(make3.at_ptG, make3.alphaC, make3.alphaD,S_CG_X,S_CG_Y);
+      angles = inverse_arm_kinematics(pointC,LEN_AB,LEN_BC); // find partial angles  TO DO  need goverened at point c
+      jA.desired_angle = angles[0]; // global A = local A
+      jB.desired_angle = angles[1];  // local B
+      //alphaB = angles[0]+angles[1];  // global B
+      jT.desired_angle = angles[2];  // global T
+      jC.desired_angle = make3.alphaC; //-alphaB; // convert to a local C
       jD.desired_angle = make3.alphaD; // goverened d
-      angles = inverse_arm_kinematics(lineCG.p1,LEN_AB,LEN_BC); 
-      jA.desired_angle = angles[0];
-      jB.desired_angle = angles[1];
-      jT.desired_angle = angles[2];
+      //jD.desired_angle = make3.alphaD -  jT.desired_angle; // convert to a local D  TO DO  APPLY COMPENSATION ANGLES
+      //jCLAW.desired_angle = make3.angClaw;
 
       break;
   }
@@ -266,10 +275,10 @@ void loop() {  //########### MAIN LOOP ############
   
     logData(jA,'A');
     logData(jB,'B');
-    logData(jC,'C');
-    logData(jD,'D');
-    logData(jT,'T');
-    logData(jCLAW,'X');
+//    logData(jC,'C');
+//    logData(jD,'D');
+//    logData(jT,'T');
+//    logData(jCLAW,'X');
 //      logData(jS,'S');
     Serial.println(", END");
   #endif
