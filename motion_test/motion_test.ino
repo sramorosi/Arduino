@@ -402,68 +402,85 @@ void logData(joint jt,char jt_letter) {
 struct machine_state test_machine; 
 struct joint jA,jB,jC,jD,jCLAW,jT,jS;
 
-#define MMPS 200 // mm per second
+#define MMPS 400 // mm per second
 #define X_PP 250 // x mm for pick and place
 #define Y_MV 200 // y swing in mm
+#define Y_MV_NEG -100 // y swing in mm
 #define FLOORH -80 // z of floor for picking
 #define BLOCKH 100 // block height mm
+#define BLOCKW 50 // half block width mm
 #define ALPHAC -90 // global C angle, all moves
 #define ALPHADPICK 90 // global D for pick
 #define ALPHADPLACE 0 // global D for place
 #define CLAWCLOSE -30
 #define CLAWOPEN 50
 
-static int cmd_array[][SIZE_CMD_ARRAY]={{1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,  ALPHAC,ALPHADPICK}, // ready block 1
-                           {2,200,45,0,0,0,0}, // pause to pick block 1 - UNIQUE IN SEQUENCE
+static int cmd_array[][SIZE_CMD_ARRAY]={{2,100,CLAWOPEN,0,0,0,0},
+                           {1,100, X_PP,Y_MV,FLOORH+BLOCKH,  ALPHAC,ALPHADPICK}, // ready block 1
+                           {2,1000,CLAWOPEN,0,0,0,0}, // pause to pick block 1 - UNIQUE IN SEQUENCE
                            {1,MMPS, X_PP,Y_MV,FLOORH,             ALPHAC,ALPHADPICK}, // down to block 2
                            {2,500,CLAWCLOSE,0,0,0,0}, // pick block 1
-                           //{1,MMPS, X_PP,Y_MV,FLOORH+1*BLOCKH,    ALPHAC,ALPHADPICK}, // up block 1 
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+1*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 1 
-                           {1,MMPS, X_PP,-Y_MV,FLOORH,            ALPHAC,ALPHADPLACE}, // place block 1 
+                           {1,MMPS, X_PP,Y_MV_NEG,FLOORH+1*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 1 
+                           {1,MMPS, X_PP,Y_MV_NEG,FLOORH,            ALPHAC,ALPHADPLACE}, // place block 1 
                            {2,500,CLAWOPEN,0,0,0,0}, // drop block 1
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+1*BLOCKH,   ALPHAC,ALPHADPLACE}, // up clear block 1 
+                           {1,MMPS, X_PP,Y_MV_NEG,FLOORH+1*BLOCKH,   ALPHAC,ALPHADPLACE}, // up clear block 1 
                            
                            {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,      ALPHAC,ALPHADPICK}, // ready block 2
                            {1,MMPS, X_PP,Y_MV,FLOORH,             ALPHAC,ALPHADPICK}, // down to block 2
                            {2,500,CLAWCLOSE,0,0,0,0}, // pick block 2
-                           //{1,MMPS, X_PP,Y_MV,FLOORH+2*BLOCKH,    ALPHAC,ALPHADPICK}, // up block 2 
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 2 
-                           {1,MMPS/2, X_PP,-Y_MV,FLOORH+1*BLOCKH, ALPHAC,ALPHADPLACE}, // place block 2 
+                           {1,MMPS, X_PP,Y_MV_NEG+BLOCKW,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 2 
+                           {1,MMPS, X_PP,Y_MV_NEG,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 2 
+                           {1,MMPS/2, X_PP,Y_MV_NEG,FLOORH+1*BLOCKH, ALPHAC,ALPHADPLACE}, // place block 2 
                            {2,500,CLAWOPEN,0,0,0,0}, // drop block 2
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // up clear block 2 
+                           {1,MMPS, X_PP,Y_MV_NEG,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 2 
+                           {1,MMPS, X_PP,Y_MV_NEG+BLOCKW,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // up clear block 2 
                            
                            {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // ready block 3
                            {1,MMPS, X_PP,Y_MV,FLOORH,              ALPHAC,ALPHADPICK}, // down to block 2
                            {2,500,CLAWCLOSE,0,0,0,0}, // pick  block 3
-                           //{1,MMPS, X_PP,Y_MV,FLOORH+3*BLOCKH,     ALPHAC,ALPHADPICK}, // up block 3 
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 3 
-                           {1,MMPS/2, X_PP,-Y_MV,FLOORH+2*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 3 
+                           {1,MMPS, X_PP,Y_MV_NEG+BLOCKW,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 3 
+                           {1,MMPS, X_PP,Y_MV_NEG,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 3 
+                           {1,MMPS/2, X_PP,Y_MV_NEG,FLOORH+2*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 3 
                            {2,500,CLAWOPEN,0,0,0,0}, // drop block 3
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 3 
+                           {1,MMPS, X_PP,Y_MV_NEG,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 3 
+                           {1,MMPS, X_PP,Y_MV_NEG+BLOCKW,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 3 
                            
                            {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // ready block 4
                            {1,MMPS, X_PP,Y_MV,FLOORH,              ALPHAC,ALPHADPICK},  // pick block 4
                            {2,500,CLAWCLOSE,0,0,0,0}, // pick  block 4
-                           //{1,MMPS, X_PP,Y_MV,FLOORH+4*BLOCKH,     ALPHAC,ALPHADPICK}, // up block 4 
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 4 
-                           {1,MMPS/2, X_PP,-Y_MV,FLOORH+3*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 4
+                           {1,MMPS, X_PP,Y_MV_NEG+BLOCKW,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 4 
+                           {1,MMPS, X_PP,Y_MV_NEG,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 4 
+                           {1,MMPS/2, X_PP,Y_MV_NEG,FLOORH+3*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 4
                            {2,500,CLAWOPEN,0,0,0,0}, // drop block 4
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 4 
+                           {1,MMPS, X_PP,Y_MV_NEG,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 4 
+                           {1,MMPS, X_PP,Y_MV_NEG+BLOCKW,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 4 
                            
                            {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // pick block 5
                            {1,MMPS, X_PP,Y_MV,FLOORH,              ALPHAC,ALPHADPICK},  // pick block 5
                            {2,500,CLAWCLOSE,0,0,0,0}, // pick  block 5
-                           //{1,MMPS, X_PP,Y_MV,FLOORH+5*BLOCKH,     ALPHAC,ALPHADPICK}, // up block 5 
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 5 
-                           {1,MMPS/2, X_PP,-Y_MV,FLOORH+4*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 5
+                           {1,MMPS, X_PP,Y_MV_NEG+BLOCKW,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 5 
+                           {1,MMPS, X_PP,Y_MV_NEG,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 5 
+                           {1,MMPS/2, X_PP,Y_MV_NEG,FLOORH+4*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 5
                            {2,500,CLAWOPEN,0,0,0,0}, // drop block 5
-                           {1,MMPS, X_PP,-Y_MV,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 5 
+                           {1,MMPS, X_PP,Y_MV_NEG,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 5 
+                           {1,MMPS, X_PP,Y_MV_NEG+BLOCKW,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 5 
+                           
+                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // pick block 6
+                           {1,MMPS, X_PP,Y_MV,FLOORH,              ALPHAC,ALPHADPICK},  // pick block 6
+                           {2,500,CLAWCLOSE,0,0,0,0}, // pick  block 6
+                           {1,MMPS-50, X_PP,Y_MV_NEG+BLOCKW,FLOORH+6*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 6 
+                           {1,MMPS-50, X_PP,Y_MV_NEG,FLOORH+6*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 6 
+                           {1,MMPS/2, X_PP,Y_MV_NEG,FLOORH+5*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 6
+                           {2,500,CLAWOPEN,0,0,0,0}, // drop block 6
+                           {1,MMPS, X_PP,Y_MV_NEG,FLOORH+6*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 6 
+                           {1,MMPS-50, X_PP,Y_MV_NEG+BLOCKW,FLOORH+6*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 6 
 
-                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK}};  // pick block ready
+                           {1,MMPS-100, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK}};  // pick block ready
 
-void setup() {
+
+void setup() {   // put your setup code here, to run once:
   static int cmd_size = sizeof(cmd_array)/(SIZE_CMD_ARRAY*2);  // sizeof array.  2 bytes per int
-  // put your setup code here, to run once:
+
   Serial.begin(9600); // baud rate
   while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
@@ -472,7 +489,8 @@ void setup() {
   test_machine.state = 1; 
   Serial.print("cmd_size,");
   Serial.println(cmd_size);
-  // TUNE POT LOW AND HIGH VALUES
+
+   // TUNE POT LOW AND HIGH VALUES
   // set_pot(pin,lowmv,lowang,highmv,highang)
   jA.pot = set_pot(0 ,134,  0/RADIAN, 895, 178/RADIAN); 
   jB.pot = set_pot(1 ,500,-90/RADIAN, 908,  0/RADIAN); 
