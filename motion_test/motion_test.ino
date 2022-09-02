@@ -6,6 +6,7 @@
  *  commented-out when saved as an include (.h) file.
  *  alpha angles are global.  theta angles are local.
  */
+ // >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>BEGIN MOTION CONTROL CODE HERE
 #define RADIAN 57.2957795  // number of degrees in one radian
 
 struct point {float x,y,z;}; 
@@ -116,12 +117,12 @@ void set_joint(joint & jt, float initial_angle) {
   jt.previous_millis = millis();
 }
 
-machine_state setup_ms(float xG, float yG, float zG, int cmd_size) { // starting point G on arm
+machine_state setup_ms(float xG, float yG, float zG) { // starting point G on arm
   struct machine_state ms;
   ms.state = 0;
   ms.initialize = true;
   ms.n = 0;  // first command
-  ms.cmd_size = cmd_size;
+  ms.cmd_size = 0;
   ms.prior_mst = millis();
   ms.at_ptG.x = xG;  ms.at_ptG.y = yG;  ms.at_ptG.z = zG;
   ms.alphaC = 0.0;
@@ -372,9 +373,11 @@ void state_setup(machine_state & machine) { // Call every loop, to check for a s
   if (machine.initialize) { 
     machine.n = 0; // reset array pointer
     machine.moveDist = 0.0;  // reset govenor distance
+    machine.cmd_size = 0;  // sizeof array.
     machine.initialize = false;
   }  
 }
+// <<<<<<<<<<<<<<<<<<<<<<<<END MOTION CONTROL CODE HERE
 
 // #####################################################################################33
 //  COMMENT OUT BELOW HERE WHEN SAVING AS AN INCLUDE (.h) FILE
@@ -405,15 +408,31 @@ struct joint jA,jB,jC,jD,jCLAW,jT,jS;
 #define MMPS 400 // mm per second
 #define X_PP 250 // x mm for pick and place
 #define Y_MV 200 // y swing in mm
-#define Y_MV_NEG -100 // y swing in mm
+#define Y_MV_NEG -150 // y swing in mm
 #define FLOORH -80 // z of floor for picking
 #define BLOCKH 100 // block height mm
-#define BLOCKW 50 // half block width mm
+#define BLOCKW 100 // half block width mm
 #define ALPHAC -90 // global C angle, all moves
 #define ALPHADPICK 90 // global D for pick
 #define ALPHADPLACE 0 // global D for place
 #define CLAWCLOSE -30
 #define CLAWOPEN 50
+
+static int lineCmds[][SIZE_CMD_ARRAY]={{2,100,CLAWOPEN,0,0,0,0},
+                           {1,100, 100,400,300,  -90,90}, // ready
+                           {2,2000,CLAWOPEN,0,0,0,0}, // pause to pick 
+                           {2,1000,CLAWCLOSE,0,0,0,0}, // close to pick camera
+                           {1,80, 100,-400,300,   -90,-90}, // line over
+                           {0,1000,0,0,0,0,0},    // pause
+                           {1,80, 100,400,300,   -90,90}}; // line back
+                           
+static int line2Cmds[][SIZE_CMD_ARRAY]={{2,100,CLAWOPEN,0,0,0,0},
+                           {1,100, 200,400,0,  90,0}, // ready
+                           {2,2000,CLAWOPEN,0,0,0,0}, // pause to pick 
+                           {2,1000,CLAWCLOSE,0,0,0,0}, // close to pick camera
+                           {1,50, 200,-400,0,   -90,0}, // line over
+                           {0,1000,0,0,0,0,0},    // pause
+                           {1,50, 200,400,0,   90,0}}; // line back
 
 static int cmd_array[][SIZE_CMD_ARRAY]={{2,100,CLAWOPEN,0,0,0,0},
                            {1,100, X_PP,Y_MV,FLOORH+BLOCKH,  ALPHAC,ALPHADPICK}, // ready block 1
@@ -479,57 +498,52 @@ static int cmd_array[][SIZE_CMD_ARRAY]={{2,100,CLAWOPEN,0,0,0,0},
 
 
 void setup() {   // put your setup code here, to run once:
-  static int cmd_size = sizeof(cmd_array)/(SIZE_CMD_ARRAY*2);  // sizeof array.  2 bytes per int
+  //static int cmd_size = sizeof(cmd_array)/(SIZE_CMD_ARRAY*2);  // sizeof array.  2 bytes per int
 
   Serial.begin(9600); // baud rate
   while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
   } 
-  test_machine = setup_ms(LEN_BC, 0.0, LEN_AB,cmd_size);
+  test_machine = setup_ms(LEN_BC, 0.0, LEN_AB);
   test_machine.state = 1; 
-  Serial.print("cmd_size,");
-  Serial.println(cmd_size);
+  state_setup(test_machine);
 
-   // TUNE POT LOW AND HIGH VALUES
+  // TUNE POT LOW AND HIGH VALUES
   // set_pot(pin,lowmv,lowang,highmv,highang)
-  jA.pot = set_pot(0 ,134,  0/RADIAN, 895, 178/RADIAN); 
-  jB.pot = set_pot(1 ,500,-90/RADIAN, 908,  0/RADIAN); 
+  jA.pot = set_pot(0 ,134,  0/RADIAN, 895, 178/RADIAN); // good
+  jB.pot = set_pot(1 ,500,-90/RADIAN, 908,  0/RADIAN); // good
   //jC.pot = set_pot(3 , 116,-90/RADIAN, 903, 90/RADIAN); // C will not have a pot on Make3
   jD.pot = set_pot(2 ,250, 60/RADIAN, 747, -60/RADIAN); 
-  jT.pot = set_pot(4 ,160, -90/RADIAN, 510, 0/RADIAN); 
-  jCLAW.pot = set_pot(3 , 116,-90/RADIAN, 903, 90/RADIAN);
+  jT.pot = set_pot(4 ,166, -90/RADIAN, 960, 90/RADIAN); // better
+  jCLAW.pot = set_pot(3 , 250,-50/RADIAN, 750, 50/RADIAN);  // input arm is limited to 250 to 750
   jS.pot = set_pot(5 , 0, 0/RADIAN, 1023, 280/RADIAN);  // to tune
 
-  // TUNE SERVO LOW AND HIGH VALUES
-  // set_servo(pin,lowang,lowms,highang,highms)
-  //jA.svo = set_servo(0,  0.0/RADIAN, 960, 170.0/RADIAN, 2200);
-  //jB.svo = set_servo(1, 0.0/RADIAN, 1500, 80.0/RADIAN, 1070); // high to low
+  // NO SERVOS
 
-  jC.desired_angle = 0.0;  // initialize
+  // INITIALIZATION ANGLES FOR ARM
+  set_joint(jA, 130.0/RADIAN);  
+  set_joint(jB,  -130.0/RADIAN);
+  set_joint(jC,  -70.0/RADIAN);
+  set_joint(jD,   0.0/RADIAN);
+  set_joint(jT,    -10.0/RADIAN); 
+  set_joint(jCLAW,  45.0/RADIAN); 
   test_machine.angClaw = 45.0/RADIAN;
-  delay(10); // not sure why, but adafruit did it.
 }
 
 void loop() {
   // put your main code here, to run repeatedly:
-  static int old_state = 2;
+  static int old_state = -1;
   static float *angles;
   static float alphaB;
   static point pointC;
+  static line lineCG;
   static boolean govenorDone;
   
   jS.pot_value = analogRead(jS.pot.analog_pin);  // read the selector
-  if (jS.pot_value < 600) {
-    test_machine.state = 1;  // read command list
-    if (old_state != 1) {
-      test_machine.initialize = true;
-    }
-  } else {
-    test_machine.state = 2;  // Manually control using input arm
-    if (old_state != 2) {
-      test_machine.initialize = true;
-    }
-  }
+
+  test_machine.state = jS.pot_value/100; // convert to an integer from 0 to 9
+  if (test_machine.state != old_state)
+      test_machine.initialize=true;
   old_state = test_machine.state;
   state_setup(test_machine);  // check if state changed
 
@@ -537,52 +551,128 @@ void loop() {
   Serial.print(test_machine.prior_mst);
   Serial.print(", STATE,");
   Serial.print(test_machine.state);
+  Serial.print(",cmd_size,");
+  Serial.print(test_machine.cmd_size);
   Serial.print(", N,"); // command line
   Serial.print(test_machine.n);
   Serial.print(", CMD,");
   Serial.print(cmd_array[test_machine.n][0]); 
 
    switch (test_machine.state) {
-    case 0:  // DO NOTHING STATE
+    case 1:  // DO NOTHING STATES
+    case 3:
+    case 5:
+    case 7:
+    case 10:
       break;
-    case 1: // COMMAND CONTROL
-      commands_loop(test_machine,cmd_array);
+    case 0: // COMMAND CONTROL  LINE
+      test_machine.cmd_size = sizeof(line2Cmds)/(SIZE_CMD_ARRAY*2); // TO DO, ONLY SET ONCE
+      commands_loop(test_machine,line2Cmds);
       
       pointC =  clawToC(test_machine.at_ptG, test_machine.alphaC, test_machine.alphaD, S_CG_X, S_CG_Y);
 
       angles = inverse_arm_kinematics(pointC,LEN_AB,LEN_BC); 
+      jA.desired_angle = angles[0]; // global A = local A
+      jB.desired_angle = angles[1];  // local B
+      alphaB = angles[0]+angles[1];  // global B
+      jT.desired_angle = angles[2];  // global T
+      jC.desired_angle = test_machine.alphaC-alphaB; // convert to a local C
+      jD.desired_angle = test_machine.alphaD -  jT.desired_angle; // convert to a local D
+      jCLAW.desired_angle = test_machine.angClaw;
       
       break;
-    case 2:  // MANUAL CONTROL  TO DO FIGURE OUT HOW TO MAP C AND D
+    case 2: // COMMAND CONTROL  LINE
+      test_machine.cmd_size = sizeof(lineCmds)/(SIZE_CMD_ARRAY*2); // TO DO, ONLY SET ONCE
+      commands_loop(test_machine,lineCmds);
+      
+      pointC =  clawToC(test_machine.at_ptG, test_machine.alphaC, test_machine.alphaD, S_CG_X, S_CG_Y);
+
+      angles = inverse_arm_kinematics(pointC,LEN_AB,LEN_BC); 
+      jA.desired_angle = angles[0]; // global A = local A
+      jB.desired_angle = angles[1];  // local B
+      alphaB = angles[0]+angles[1];  // global B
+      jT.desired_angle = angles[2];  // global T
+      jC.desired_angle = test_machine.alphaC-alphaB; // convert to a local C
+//      jD.desired_angle = test_machine.alphaD -  jT.desired_angle; // convert to a local D
+      jD.desired_angle = test_machine.alphaD; // convert to a local D
+      jCLAW.desired_angle = test_machine.angClaw;
+      
+      break;
+    case 4: // COMMAND CONTROL  C = -90  SAME AS CASE 2 PRESENTLY
+      test_machine.cmd_size = sizeof(cmd_array)/(SIZE_CMD_ARRAY*2); // TO DO, ONLY SET ONCE
+      commands_loop(test_machine,cmd_array);
+
+      pointC =  clawToC(test_machine.at_ptG, test_machine.alphaC, test_machine.alphaD, S_CG_X, S_CG_Y);
+
+      angles = inverse_arm_kinematics(pointC,LEN_AB,LEN_BC); 
+      jA.desired_angle = angles[0]; // global A = local A
+      jB.desired_angle = angles[1];  // local B
+      alphaB = angles[0]+angles[1];  // global B
+      jT.desired_angle = angles[2];  // global T
+      jC.desired_angle = test_machine.alphaC-alphaB; // convert to a local C
+      jD.desired_angle = test_machine.alphaD -  jT.desired_angle; // convert to a local D
+//      jD.desired_angle = test_machine.alphaD; // convert to a local D
+      jCLAW.desired_angle = test_machine.angClaw;
+      
+      break;
+    case 6:  // MANUAL CONTROL  DIRECT FULL SPEED   C = -90
       jA.pot_value = analogRead(jA.pot.analog_pin);  // read joint A
       jB.pot_value = analogRead(jB.pot.analog_pin);  // read joint B
-      jC.pot_value = analogRead(jC.pot.analog_pin);  // read joint Claw
-      jD.pot_value = analogRead(jD.pot.analog_pin);  // read D wrist
-      jT.pot_value = analogRead(jT.pot.analog_pin);  // read the turntable
-    
       pot_map(jA);
       pot_map(jB);
-      pot_map(jC); 
+      jC.desired_angle = -jA.desired_angle - jB.desired_angle-90.0/RADIAN;
+    case 8:  // MANUAL CONTROL  DIRECT FULL SPEED   C = 0
+      if (test_machine.state == 8) {
+        jA.pot_value = analogRead(jA.pot.analog_pin);  // read joint A
+        jB.pot_value = analogRead(jB.pot.analog_pin);  // read joint B
+         pot_map(jA);
+         pot_map(jB);
+        jC.desired_angle = -jA.desired_angle - jB.desired_angle;   // C is zero
+      }
+      jD.pot_value = analogRead(jD.pot.analog_pin);  // read D wrist
+      jT.pot_value = analogRead(jT.pot.analog_pin);  // read the turntable
+      jCLAW.pot_value = analogRead(jCLAW.pot.analog_pin);  // read joint Claw
+    
+      // Direct (full speed) method
+      pot_map(jCLAW); 
       test_machine.angClaw = jC.desired_angle;
-      pot_map(jD); // Wrist
+      pot_map(jD); // Wrist  TO DO  subtract turntable?
       pot_map(jT); // Turntable
-      pointC = anglesToC(jA.pot_angle/RADIAN,jB.pot_angle/RADIAN,jT.pot_angle/RADIAN, LEN_AB, LEN_BC);
-      govenorDone = machineGovenor(test_machine, pointC, 600, jC.pot_value, jD.pot_value); 
-      angles = inverse_arm_kinematics(pointC,LEN_AB,LEN_BC); 
+      jD.desired_angle = jD.desired_angle -  jT.desired_angle; // convert to a local D
+      
+      break;
+    case 9:  // MANUAL CONTROL  WITH GOVENOR    C = -90
+        jA.pot_value = analogRead(jA.pot.analog_pin);  // read joint A
+        jB.pot_value = analogRead(jB.pot.analog_pin);  // read joint B
+        jD.pot_value = analogRead(jD.pot.analog_pin);  // read D wrist
+        jT.pot_value = analogRead(jT.pot.analog_pin);  // read the turntable
+        jCLAW.pot_value = analogRead(jCLAW.pot.analog_pin);  // read joint Claw
+      
+        // Direct (full speed) method
+        pot_map(jA);
+        pot_map(jB);
+        pot_map(jCLAW); 
+        jC.desired_angle = -jA.desired_angle - jB.desired_angle-90.0/RADIAN;
+        test_machine.angClaw = jC.desired_angle;
+        pot_map(jD); // Wrist  TO DO  subtract turntable?
+        pot_map(jT); // Turntable
+        
+        lineCG = anglesToG(jA.desired_angle,jB.desired_angle,jT.desired_angle,jC.desired_angle,jD.desired_angle, LEN_AB, LEN_BC,S_CG_X,S_CG_Y);
+        govenorDone = machineGovenor(test_machine, lineCG.p2, 200, jC.desired_angle, jD.desired_angle); 
+  
+        pointC = clawToC(test_machine.at_ptG, test_machine.alphaC, test_machine.alphaD,S_CG_X,S_CG_Y);
+        angles = inverse_arm_kinematics(pointC,LEN_AB,LEN_BC); // find partial angles  TO DO  need goverened at point c
+        jA.desired_angle = angles[0]; // global A = local A
+        jB.desired_angle = angles[1];  // local B
+        //alphaB = angles[0]+angles[1];  // global B
+        jT.desired_angle = angles[2];  // global T
+        jC.desired_angle = test_machine.alphaC; //-alphaB; // convert to a local C
+        jD.desired_angle = test_machine.alphaD; // goverened d
+        //jD.desired_angle = test_machine.alphaD -  jT.desired_angle; // convert to a local D  TO DO  APPLY COMPENSATION ANGLES
+        //jCLAW.desired_angle = test_machine.angClaw;
+  
       break;
   }
-  jA.desired_angle = angles[0]; // global A = local A
-  jB.desired_angle = angles[1];  // local B
-  alphaB = angles[0]+angles[1];  // global B
-  jT.desired_angle = angles[2];  // global T
-  jC.desired_angle = test_machine.alphaC-alphaB; // convert to a local C
-  jD.desired_angle = test_machine.alphaD -  jT.desired_angle; // convert to a local D
-  jCLAW.desired_angle = test_machine.angClaw;
-
-  // ADD CODE HERE TO DRIVE SERVOS
-  // GET SERVO Pulse width VALUES FROM ARM OUTPUT ANGLE
-  servo_map(jA);
-  servo_map(jB);  
 
   Serial.print(",G,");
   Serial.print(test_machine.at_ptG.x);
