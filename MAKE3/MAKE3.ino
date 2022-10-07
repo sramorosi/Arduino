@@ -499,64 +499,67 @@ static int cmd_array[][SIZE_CMD_ARRAY]={{2,100,CLAWOPEN,0,0,0,0},
 */
 
 // Command Values for picking 5 stack PowerPlay cones and placing on Mid height Junction
-#define MMPS 600 // mm per second
-#define X_MV 724 // x cone pick location in mm
-#define X_MV_NEG -457 // x cone place location in mm
-#define Y_PP 254 // y location for pick and place in mm
-#define FLOORH -80 // z of floor for picking cone from floor
-#define MIDJUNTH 762 // z height of Mid Juction for placing
-#define CONEH 35 // DELTA cone height STACKED mm
+#define MMPS 700 // mm per second
+#define X_PP 254 // y location for pick and place in mm
+#define Y_MV 700 // x cone pick location in mm
+#define Y_MV_NEG -400 // x cone place location in mm
+#define FLOORH -60 // z of floor for picking cone from floor
+#define MIDJUNTH 600 // z height of Mid Juction for placing
+#define CONEH 32 // DELTA cone height STACKED mm
 #define ALPHAC 0 // global C angle, all moves
 #define ALPHADPICK 0 // global D for pick
 #define ALPHADPLACE 0 // global D for place
-#define CLAWCLOSE -37
-#define CLAWOPEN 20
+#define CLAWCLOSE -50
+#define CLAWOPEN 30
+#define LINEDANG 0
+#define LINEZ -50
 
 static int lineCmds[][SIZE_CMD_ARRAY]={{2,200,CLAWOPEN,0,0,0,0},
-                           {1,200, 0,100,300,  -90,0}, // ready
+                           {1,2000, 160,-S_CG_Z,LINEZ,  -90,LINEDANG}, // ready
                            {2,1000,CLAWOPEN,0,0,0,0}, // pause to pick 
                            {2,1000,CLAWCLOSE,0,0,0,0}, // close to pick camera
-                           {1,200, 0,700,300,   -90,0}, // line over
+                           {1,100, 160,-S_CG_Z,LINEZ+50,   -90,LINEDANG}, // line over
+                           {1,100, 700,-S_CG_Z,LINEZ+50,   -90,LINEDANG}, // line over
                            {0,1000,0,0,0,0,0},    // pause
-                           {1,200, 0,100,300,   -90,0}}; // line back
+                           {1,100, 160,-S_CG_Z,LINEZ+50,   -90,LINEDANG}}; // line back
                            
 static int cmd_array[][SIZE_CMD_ARRAY]={{2,1000,CLAWOPEN,0,0,0,0},  // open the claw, wherever it is, 1 second
-                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*7,  ALPHAC,ALPHADPICK}, // ready over cone 1
-                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*5,  ALPHAC,ALPHADPICK}, // down to cone 1
+                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*7,  ALPHAC,ALPHADPICK}, // ready over cone 1
+                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*5,  ALPHAC,ALPHADPICK}, // down to cone 1
                            {2,500,CLAWCLOSE,0,0,0,0}, // pick cone 1
-                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*8,   ALPHAC,ALPHADPLACE}, // up with cone 1 
-                           {1,MMPS, X_MV_NEG,Y_PP,MIDJUNTH,     ALPHAC,ALPHADPLACE}, // Move over Junction
+                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*9,   ALPHAC,ALPHADPLACE}, // up with cone 1 
+                           {1,MMPS, X_PP,Y_MV_NEG,MIDJUNTH,     ALPHAC,ALPHADPLACE}, // Move over Junction
                            {2,500,CLAWOPEN,0,0,0,0}, // drop cone 1
                            
-                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*6,      ALPHAC,ALPHADPICK}, // ready over cone 2
-                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*4,      ALPHAC,ALPHADPICK}, // down to cone 2
+                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*6,      ALPHAC,ALPHADPICK}, // ready over cone 2
+                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*4,      ALPHAC,ALPHADPICK}, // down to cone 2
                            {2,500,CLAWCLOSE,0,0,0,0}, // pick cone 2
-                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*7,    ALPHAC,ALPHADPLACE}, // up with cone 2 
-                           {1,MMPS, X_MV_NEG,Y_PP,MIDJUNTH,      ALPHAC,ALPHADPLACE}, // Move over Junction
+                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*8,    ALPHAC,ALPHADPLACE}, // up with cone 2 
+                           {1,MMPS, X_PP,Y_MV_NEG,MIDJUNTH,      ALPHAC,ALPHADPLACE}, // Move over Junction
                            {2,500,CLAWOPEN,0,0,0,0}, // drop cone 2
                            
-                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*5,       ALPHAC,ALPHADPICK},  // ready over cone 3
-                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*3,       ALPHAC,ALPHADPICK}, // down to cone 3
+                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*5,       ALPHAC,ALPHADPICK},  // ready over cone 3
+                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*3,       ALPHAC,ALPHADPICK}, // down to cone 3
                            {2,500,CLAWCLOSE,0,0,0,0}, // pick  cone 3
-                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*6,    ALPHAC,ALPHADPLACE}, // up with cone 3 
-                           {1,MMPS, X_MV_NEG,Y_PP,MIDJUNTH,      ALPHAC,ALPHADPLACE}, // Move over Junction
+                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*7,    ALPHAC,ALPHADPLACE}, // up with cone 3 
+                           {1,MMPS, X_PP,Y_MV_NEG,MIDJUNTH,      ALPHAC,ALPHADPLACE}, // Move over Junction
                            {2,500,CLAWOPEN,0,0,0,0}, // drop cone 3
                             
-                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*4,       ALPHAC,ALPHADPICK},  // ready over cone 4
-                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*2,       ALPHAC,ALPHADPICK},  // down to cone 4
+                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*4,       ALPHAC,ALPHADPICK},  // ready over cone 4
+                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*2,       ALPHAC,ALPHADPICK},  // down to cone 4
                            {2,500,CLAWCLOSE,0,0,0,0}, // pick  cone 4
-                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*5,     ALPHAC,ALPHADPLACE}, // up with cone 4 
-                           {1,MMPS, X_MV_NEG,Y_PP,MIDJUNTH,       ALPHAC,ALPHADPLACE}, // Move over Junction
+                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*6,     ALPHAC,ALPHADPLACE}, // up with cone 4 
+                           {1,MMPS, X_PP,Y_MV_NEG,MIDJUNTH,       ALPHAC,ALPHADPLACE}, // Move over Junction
                            {2,500,CLAWOPEN,0,0,0,0}, // drop cone 4
                             
-                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*3,       ALPHAC,ALPHADPICK},  // ready over cone 5
-                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*1,       ALPHAC,ALPHADPICK},  // down to cone 5
+                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*3,       ALPHAC,ALPHADPICK},  // ready over cone 5
+                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*1,       ALPHAC,ALPHADPICK},  // down to cone 5
                            {2,500,CLAWCLOSE,0,0,0,0}, // pick  cone 5
-                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*4,    ALPHAC,ALPHADPLACE}, // up with cone 5 
-                           {1,MMPS, X_MV_NEG,Y_PP,MIDJUNTH,      ALPHAC,ALPHADPLACE}, // Move over Junction
+                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*5,    ALPHAC,ALPHADPLACE}, // up with cone 5 
+                           {1,MMPS, X_PP,Y_MV_NEG,MIDJUNTH,      ALPHAC,ALPHADPLACE}, // Move over Junction
                            {2,500,CLAWOPEN,0,0,0,0}, // drop cone 5
                            
-                           {1,MMPS/2, 0,FLOORH+10*CONEH,       ALPHAC,ALPHADPICK}};  // home position
+                           {1,MMPS/2, 300,0,FLOORH+6*CONEH,       ALPHAC,ALPHADPICK}};  // home position
  
 void setup() {  // put your setup code here, to run once:
   //static int cmd_size = sizeof(cmd_array)/(SIZE_CMD_ARRAY*2);  // sizeof array.  2 bytes per int
