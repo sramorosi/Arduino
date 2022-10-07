@@ -386,7 +386,7 @@ void state_setup(machine_state & machine) { // Call every loop, to check for a s
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 #define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
 
-#define SERIALOUT true  // Controlls SERIAL output. Set true when debugging. 
+#define SERIALOUT false  // Controlls SERIAL output. Set true when debugging. 
 
 void logData(joint jt,char jt_letter) {
   Serial.print(",");
@@ -412,6 +412,8 @@ void logData(joint jt,char jt_letter) {
 struct machine_state make3; 
 struct joint jA,jB,jC,jD,jCLAW,jT,jS;
 
+// Command Values for picking and placing Skystone blocks
+/*
 #define MMPS 400 // mm per second
 #define X_PP 250 // x mm for pick and place
 #define Y_MV 200 // y swing in mm
@@ -420,10 +422,10 @@ struct joint jA,jB,jC,jD,jCLAW,jT,jS;
 #define BLOCKH 100 // block height mm
 #define BLOCKW 100 // block width mm
 #define ALPHAC -90 // global C angle, all moves
-#define ALPHADPICK -90 // global D for pick
-#define ALPHADPLACE 0 // global D for place
-#define CLAWCLOSE -30
-#define CLAWOPEN 50
+#define ALPHADPICK -60 // global D for pick
+#define ALPHADPLACE -20 // global D for place
+#define CLAWCLOSE -37
+#define CLAWOPEN 20
 
 static int lineCmds[][SIZE_CMD_ARRAY]={{2,200,CLAWOPEN,0,0,0,0},
                            {1,200, 100,400,300,  -90,90}, // ready
@@ -494,7 +496,68 @@ static int cmd_array[][SIZE_CMD_ARRAY]={{2,100,CLAWOPEN,0,0,0,0},
                            {1,MMPS/2, X_PP,Y_MV_NEG+2*BLOCKW,FLOORH+6*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 6 
 
                            {1,MMPS/2, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK}};  // pick block ready
+*/
 
+// Command Values for picking 5 stack PowerPlay cones and placing on Mid height Junction
+#define MMPS 600 // mm per second
+#define X_MV 724 // x cone pick location in mm
+#define X_MV_NEG -457 // x cone place location in mm
+#define Y_PP 254 // y location for pick and place in mm
+#define FLOORH -80 // z of floor for picking cone from floor
+#define MIDJUNTH 762 // z height of Mid Juction for placing
+#define CONEH 35 // DELTA cone height STACKED mm
+#define ALPHAC 0 // global C angle, all moves
+#define ALPHADPICK 0 // global D for pick
+#define ALPHADPLACE 0 // global D for place
+#define CLAWCLOSE -37
+#define CLAWOPEN 20
+
+static int lineCmds[][SIZE_CMD_ARRAY]={{2,200,CLAWOPEN,0,0,0,0},
+                           {1,200, 0,100,300,  -90,0}, // ready
+                           {2,1000,CLAWOPEN,0,0,0,0}, // pause to pick 
+                           {2,1000,CLAWCLOSE,0,0,0,0}, // close to pick camera
+                           {1,200, 0,700,300,   -90,0}, // line over
+                           {0,1000,0,0,0,0,0},    // pause
+                           {1,200, 0,100,300,   -90,0}}; // line back
+                           
+static int cmd_array[][SIZE_CMD_ARRAY]={{2,1000,CLAWOPEN,0,0,0,0},  // open the claw, wherever it is, 1 second
+                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*7,  ALPHAC,ALPHADPICK}, // ready over cone 1
+                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*5,  ALPHAC,ALPHADPICK}, // down to cone 1
+                           {2,500,CLAWCLOSE,0,0,0,0}, // pick cone 1
+                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*8,   ALPHAC,ALPHADPLACE}, // up with cone 1 
+                           {1,MMPS, X_MV_NEG,Y_PP,MIDJUNTH,     ALPHAC,ALPHADPLACE}, // Move over Junction
+                           {2,500,CLAWOPEN,0,0,0,0}, // drop cone 1
+                           
+                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*6,      ALPHAC,ALPHADPICK}, // ready over cone 2
+                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*4,      ALPHAC,ALPHADPICK}, // down to cone 2
+                           {2,500,CLAWCLOSE,0,0,0,0}, // pick cone 2
+                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*7,    ALPHAC,ALPHADPLACE}, // up with cone 2 
+                           {1,MMPS, X_MV_NEG,Y_PP,MIDJUNTH,      ALPHAC,ALPHADPLACE}, // Move over Junction
+                           {2,500,CLAWOPEN,0,0,0,0}, // drop cone 2
+                           
+                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*5,       ALPHAC,ALPHADPICK},  // ready over cone 3
+                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*3,       ALPHAC,ALPHADPICK}, // down to cone 3
+                           {2,500,CLAWCLOSE,0,0,0,0}, // pick  cone 3
+                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*6,    ALPHAC,ALPHADPLACE}, // up with cone 3 
+                           {1,MMPS, X_MV_NEG,Y_PP,MIDJUNTH,      ALPHAC,ALPHADPLACE}, // Move over Junction
+                           {2,500,CLAWOPEN,0,0,0,0}, // drop cone 3
+                            
+                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*4,       ALPHAC,ALPHADPICK},  // ready over cone 4
+                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*2,       ALPHAC,ALPHADPICK},  // down to cone 4
+                           {2,500,CLAWCLOSE,0,0,0,0}, // pick  cone 4
+                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*5,     ALPHAC,ALPHADPLACE}, // up with cone 4 
+                           {1,MMPS, X_MV_NEG,Y_PP,MIDJUNTH,       ALPHAC,ALPHADPLACE}, // Move over Junction
+                           {2,500,CLAWOPEN,0,0,0,0}, // drop cone 4
+                            
+                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*3,       ALPHAC,ALPHADPICK},  // ready over cone 5
+                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*1,       ALPHAC,ALPHADPICK},  // down to cone 5
+                           {2,500,CLAWCLOSE,0,0,0,0}, // pick  cone 5
+                           {1,MMPS, X_MV,Y_PP,FLOORH+CONEH*4,    ALPHAC,ALPHADPLACE}, // up with cone 5 
+                           {1,MMPS, X_MV_NEG,Y_PP,MIDJUNTH,      ALPHAC,ALPHADPLACE}, // Move over Junction
+                           {2,500,CLAWOPEN,0,0,0,0}, // drop cone 5
+                           
+                           {1,MMPS/2, 0,FLOORH+10*CONEH,       ALPHAC,ALPHADPICK}};  // home position
+ 
 void setup() {  // put your setup code here, to run once:
   //static int cmd_size = sizeof(cmd_array)/(SIZE_CMD_ARRAY*2);  // sizeof array.  2 bytes per int
   make3 = setup_ms(LEN_BC, 0.0, LEN_AB);
@@ -633,7 +696,7 @@ void loop() {  //########### MAIN LOOP ############
       break;
     case 6:  
     case 7:
-    case 8: // MANUAL CONTROL
+    case 8: // MANUAL CONTROL WITH GOVENOR
       jA.pot_value = analogRead(jA.pot.analog_pin);  // read joint A
       jB.pot_value = analogRead(jB.pot.analog_pin);  // read joint B
       jD.pot_value = analogRead(jD.pot.analog_pin);  // read D wrist
@@ -654,11 +717,22 @@ void loop() {  //########### MAIN LOOP ############
 
       // THESE LINES JUST FILL IN THE G point.
       //make3.prior_mst = millis();
-        lineCG = anglesToG(jA.desired_angle,jB.desired_angle,jT.desired_angle,jC.desired_angle,jD.desired_angle, LEN_AB, LEN_BC,S_CG_X,S_CG_Y);
-        govenorDone = machineGovenor(make3, lineCG.p2, 2000, jC.desired_angle, jD.desired_angle); 
+      lineCG = anglesToG(jA.desired_angle,jB.desired_angle,jT.desired_angle,jC.desired_angle,jD.desired_angle, LEN_AB, LEN_BC,S_CG_X,S_CG_Y);
+      govenorDone = machineGovenor(make3, lineCG.p2, 400, jC.desired_angle, jD.desired_angle); 
+
+        pointC = clawToC(make3.at_ptG, make3.alphaC, make3.alphaD,S_CG_X,S_CG_Y,S_CG_Z);
+        angles = inverse_arm_kinematics(pointC,LEN_AB,LEN_BC,S_TA); // find partial angles  TO DO  need goverened at point c
+        jA.desired_angle = angles[0]; // global A = local A
+        jB.desired_angle = angles[1];  // local B
+        //alphaB = angles[0]+angles[1];  // global B
+        jT.desired_angle = angles[2];  // global T
+        //jC.desired_angle = make3.alphaC; //-alphaB; // convert to a local C
+        jD.desired_angle = make3.alphaD; // goverened d
+        //jD.desired_angle = make3.alphaD -  jT.desired_angle; // convert to a local D  TO DO  APPLY COMPENSATION ANGLES
+        //jCLAW.desired_angle = make3.angClaw;
 
       break;
-    case 9:  // MANUAL CONTROL  WITH GOVENOR    C = -90
+    case 9:  // MANUAL CONTROL  
         jA.pot_value = analogRead(jA.pot.analog_pin);  // read joint A
         jB.pot_value = analogRead(jB.pot.analog_pin);  // read joint B
         jD.pot_value = analogRead(jD.pot.analog_pin);  // read D wrist
@@ -675,18 +749,8 @@ void loop() {  //########### MAIN LOOP ############
         pot_map(jT); // Turntable
         
         lineCG = anglesToG(jA.desired_angle,jB.desired_angle,jT.desired_angle,jC.desired_angle,jD.desired_angle, LEN_AB, LEN_BC,S_CG_X,S_CG_Y);
-        govenorDone = machineGovenor(make3, lineCG.p2, 200, jC.desired_angle, jD.desired_angle); 
+        govenorDone = machineGovenor(make3, lineCG.p2, 2000, jC.desired_angle, jD.desired_angle); 
   
-        pointC = clawToC(make3.at_ptG, make3.alphaC, make3.alphaD,S_CG_X,S_CG_Y,S_CG_Z);
-        angles = inverse_arm_kinematics(pointC,LEN_AB,LEN_BC,S_TA); // find partial angles  TO DO  need goverened at point c
-        jA.desired_angle = angles[0]; // global A = local A
-        jB.desired_angle = angles[1];  // local B
-        //alphaB = angles[0]+angles[1];  // global B
-        jT.desired_angle = angles[2];  // global T
-        jC.desired_angle = make3.alphaC; //-alphaB; // convert to a local C
-        jD.desired_angle = make3.alphaD; // goverened d
-        //jD.desired_angle = make3.alphaD -  jT.desired_angle; // convert to a local D  TO DO  APPLY COMPENSATION ANGLES
-        //jCLAW.desired_angle = make3.angClaw;
   
       break;
   }
@@ -698,8 +762,8 @@ void loop() {  //########### MAIN LOOP ############
   servo_map(jT); 
 
   // HARD LIMITS FOR CLAW
-  if (jCLAW.desired_angle > 1.0) jCLAW.desired_angle = 1.0;
-  if (jCLAW.desired_angle < -1.0) jCLAW.desired_angle = -1.0;
+  if (jCLAW.desired_angle > 18.0/RADIAN) jCLAW.desired_angle = 18.0/RADIAN;
+  if (jCLAW.desired_angle < -49.0/RADIAN) jCLAW.desired_angle = -49.0/RADIAN;
   servo_map(jCLAW); 
 
 
