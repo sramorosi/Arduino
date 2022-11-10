@@ -1,0 +1,87 @@
+// Command Values for picking and placing Skystone blocks
+/*
+#define MMPS 400 // mm per second
+#define X_PP 250 // x mm for pick and place
+#define Y_MV 200 // y swing in mm
+#define Y_MV_NEG -150 // y swing in mm
+#define FLOORH -80 // z of floor for picking
+#define BLOCKH 100 // block height mm
+#define BLOCKW 100 // block width mm
+#define ALPHAC -90 // global C angle, all moves
+#define ALPHADPICK -60 // global D for pick
+#define ALPHADPLACE -20 // global D for place
+#define CLAWCLOSE -37
+#define CLAWOPEN 20
+
+static int lineCmds[][SIZE_CMD_ARRAY]=
+  {{C_CLAW,200,CLAWOPEN,0,0,0,0},
+   {C_LINE,200, 100,400,300,  -90,90}, // ready
+   {C_CLAW,1000,CLAWOPEN,0,0,0,0}, // pause to pick 
+   {C_CLAW,1000,CLAWCLOSE,0,0,0,0}, // close to pick camera
+   {C_LINE,200, 100,-400,300,   -90,-90}, // line over
+   {C_TIME,1000,0,0,0,0,0},    // pause
+   {C_LINE,200, 100,400,300,   -90,90}}; // line back
+                           
+static int cmd_array[][SIZE_CMD_ARRAY]=
+  {{C_CLAW,100,CLAWOPEN,0,0,0,0},
+   {C_LINE,100, X_PP,Y_MV,FLOORH+BLOCKH,  ALPHAC,ALPHADPICK}, // ready block 1
+   {C_CLAW,1000,CLAWOPEN,0,0,0,0}, // pause to pick block 1 - UNIQUE IN SEQUENCE
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH,             ALPHAC,ALPHADPICK}, // down to block 2
+   {C_CLAW,500,CLAWCLOSE,0,0,0,0}, // pick block 1
+   {C_LINE,MMPS, X_PP,Y_MV_NEG,FLOORH+1*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 1 
+   {C_LINE,MMPS, X_PP,Y_MV_NEG,FLOORH,            ALPHAC,ALPHADPLACE}, // place block 1 
+   {C_CLAW,500,CLAWOPEN,0,0,0,0}, // drop block 1
+   {C_LINE,MMPS, X_PP,Y_MV_NEG,FLOORH+1*BLOCKH,   ALPHAC,ALPHADPLACE}, // up clear block 1 
+   
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,      ALPHAC,ALPHADPICK}, // ready block 2
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH,             ALPHAC,ALPHADPICK}, // down to block 2
+   {C_CLAW,500,CLAWCLOSE,0,0,0,0}, // pick block 2
+   {C_LINE,MMPS, X_PP,Y_MV_NEG+BLOCKW,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 2 
+   {C_LINE,MMPS, X_PP,Y_MV_NEG,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 2 
+   {C_LINE,MMPS/2, X_PP,Y_MV_NEG,FLOORH+1*BLOCKH, ALPHAC,ALPHADPLACE}, // place block 2 
+   {C_CLAW,500,CLAWOPEN,0,0,0,0}, // drop block 2
+   {C_LINE,MMPS, X_PP,Y_MV_NEG,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 2 
+   {C_LINE,MMPS, X_PP,Y_MV_NEG+BLOCKW,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // up clear block 2 
+   
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // ready block 3
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH,              ALPHAC,ALPHADPICK}, // down to block 2
+   {C_CLAW,500,CLAWCLOSE,0,0,0,0}, // pick  block 3
+   {C_LINE,MMPS, X_PP,Y_MV_NEG+BLOCKW,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 3 
+   {C_LINE,MMPS, X_PP,Y_MV_NEG,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 3 
+   {C_LINE,MMPS/2, X_PP,Y_MV_NEG,FLOORH+2*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 3 
+   {C_CLAW,500,CLAWOPEN,0,0,0,0}, // drop block 3
+   {C_LINE,MMPS, X_PP,Y_MV_NEG,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 3 
+   {C_LINE,MMPS, X_PP,Y_MV_NEG+BLOCKW,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 3 
+   
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // ready block 4
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH,              ALPHAC,ALPHADPICK},  // pick block 4
+   {C_CLAW,500,CLAWCLOSE,0,0,0,0}, // pick  block 4
+   {C_LINE,MMPS, X_PP,Y_MV_NEG+BLOCKW,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 4 
+   {C_LINE,MMPS, X_PP,Y_MV_NEG,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 4 
+   {C_LINE,MMPS/2, X_PP,Y_MV_NEG,FLOORH+3*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 4
+   {C_CLAW,500,CLAWOPEN,0,0,0,0}, // drop block 4
+   {C_LINE,MMPS, X_PP,Y_MV_NEG,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 4 
+   {C_LINE,MMPS, X_PP,Y_MV_NEG+BLOCKW,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 4 
+   
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // pick block 5
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH,             ALPHAC,ALPHADPICK},  // pick block 5
+   {C_CLAW,500,CLAWCLOSE,0,0,0,0}, // pick  block 5
+   {C_LINE,MMPS, X_PP,Y_MV_NEG+BLOCKW,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 5 
+   {C_LINE,MMPS, X_PP,Y_MV_NEG,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 5 
+   {C_LINE,MMPS/2, X_PP,Y_MV_NEG,FLOORH+4*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 5
+   {C_CLAW,500,CLAWOPEN,0,0,0,0}, // drop block 5
+   {C_LINE,MMPS, X_PP,Y_MV_NEG,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 5 
+   {C_LINE,MMPS, X_PP,Y_MV_NEG+BLOCKW,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 5 
+   
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // pick block 6
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH,              ALPHAC,ALPHADPICK},  // pick block 6
+   {C_CLAW,500,CLAWCLOSE,0,0,0,0}, // pick  block 6
+   {C_LINE,MMPS/2, X_PP,Y_MV_NEG+BLOCKW,FLOORH+6*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 6 
+   {C_LINE,MMPS/2, X_PP,Y_MV_NEG,FLOORH+6*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 6 
+   {C_LINE,MMPS/2, X_PP,Y_MV_NEG,FLOORH+5*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 6
+   {C_CLAW,500,CLAWOPEN,0,0,0,0}, // drop block 6
+   {C_LINE,MMPS, X_PP-100,Y_MV_NEG,FLOORH+6*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 6 
+   {C_LINE,MMPS/2, X_PP,Y_MV_NEG+2*BLOCKW,FLOORH+6*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 6 
+
+   {C_LINE,MMPS/2, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK}};  // pick block ready
+*/

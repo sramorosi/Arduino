@@ -1,5 +1,5 @@
 /* ROBOT ARM CONTROL SOFTWARE FOR MAKE3 ROBOT ARM
- *  By, SrAmo, August 2022
+ *  By, SrAmo, November 2022
  *  
  *  
  */
@@ -29,6 +29,10 @@ struct machine_state {
 };
 
 #define SIZE_CMD_ARRAY 7  // NUMBER OF VALUES PER COMMAND
+#define C_TIME 0   // command code for timer
+#define C_LINE 1   // command code for line move
+#define C_CLAW 2   // command code for claw move
+
 /*
  *  CODES:
  *  0 = TIMER, followed by the time delay in milliseconds (keeps looping)
@@ -42,10 +46,11 @@ struct machine_state {
  *  loc in array ={  0,   1           , 2    , 3    ,  4   , 5     ,  6    } 
  */
 /*  Example of a command array and getting the size
-static int cmd_array[][SIZE_CMD_ARRAY]={{1,100,300,0,250,0,0},
-                           {0,3000,0,0,0,0,0}, // 3 second delay
-                           {1,100,200,-200,250,0,0},
-                           {2,500,30,0,0,0,0}}; // 1/2 second 30 deg claw move
+static int cmd_array[][SIZE_CMD_ARRAY]=
+            {{C_LINE,100,300,0,250,0,0},
+             {C_TIME,3000,0,0,0,0,0}, // 3 second delay
+             {C_LINE,100,200,-200,250,0,0},
+             {C_CLAW,500,30,0,0,0,0}}; // 0.5 second 30 deg claw move
  */
  /*
  *  STRUCTURES FOR SERVOS, POTENTIOMETERS, AND JOINTS
@@ -202,8 +207,15 @@ float * inverse_arm_kinematics(point c, float l_ab, float l_bc, float aOffset) {
   float xy_len, c_len, sub_angle1, sub_angle2;
   static float angles[3] = {0.0,0.0,0.0};  // [ A , B , T ]
   static point c_new;
+
+  #define SMALL_L  2.0   // small length value, used to prevend divide by zero
   
-  if (c.x > 0) { // This math only works for positive Cx
+  if((abs(c.x-aOffset) < SMALL_L) && (abs(c.z) < SMALL_L) ) {  // is c too close to A?
+    c.x = SMALL_L+aOffset;
+    c.z = 0.0;
+  }
+  
+  //if (c.x > 0) { // This math only works for positive Cx
     angles[2] = atan2(c.y,c.x);  // note: atan2 order; y,x
 
     c_new = rot_pt_z(c,-angles[2]); // rotate the point c onto the XZ plane using turntable angle
@@ -220,7 +232,7 @@ float * inverse_arm_kinematics(point c, float l_ab, float l_bc, float aOffset) {
       angles[0] = atan2(c_new.z,(c_new.x-aOffset)); // a angle point in direction to go
       angles[1] = 0.0; // b is straight
     } 
-  }
+  //}
   return angles;  // return the angles
 }
 
@@ -294,8 +306,10 @@ void servo_map(joint & jt) {
   jt.servo_ms = floatMap(jt.desired_angle, jt.svo.low_ang, jt.svo.high_ang, jt.svo.low_ms, jt.svo.high_ms);
 }
 
-boolean machineGovenor(machine_state & machine, point to_G, int mmps, float to_C, float to_D) { // limits movement given feed rate
+boolean lineMove(machine_state & machine, point to_G, int mmps, float to_C, float to_D) { 
+  // limits movement (live a machine govenor) given feed rate (mmps)
   // updates .at_ptG based on speed limit
+  // RETURNS true if done moving, false if not
   static unsigned long mst;
   static float line_len, newC, newD;
   static point newG;
@@ -339,29 +353,29 @@ void commands_loop(machine_state & machine, int cmds[][SIZE_CMD_ARRAY]) {
   // read type of command
   if (machine.n != 9999) {
     switch (cmds[machine.n][0]) {
-      case 0: // DELAY (timer)
+      case C_TIME: // DELAY (timer)
         if ((millis()-machine.timerStart) > cmds[machine.n][1]) {
           machine.prior_mst = millis();
           go_to_next_cmd(machine);        
         }
         break;
-      case 1: // line move
+      case C_LINE: // line move
         if (machine.moveDist == 0.0) { // initialize line
             toCpt.x = cmds[machine.n][2];
             toCpt.y = cmds[machine.n][3];
             toCpt.z = cmds[machine.n][4];
             toAlphaC = cmds[machine.n][5]/RADIAN;
             toAlphaD = cmds[machine.n][6]/RADIAN;
-            govenorDone = machineGovenor(machine, toCpt, cmds[machine.n][1],toAlphaC,toAlphaD); 
+            govenorDone = lineMove(machine, toCpt, cmds[machine.n][1],toAlphaC,toAlphaD); 
 
          } else {  // moving
-            govenorDone = machineGovenor(machine, toCpt, cmds[machine.n][1],toAlphaC,toAlphaD); 
+            govenorDone = lineMove(machine, toCpt, cmds[machine.n][1],toAlphaC,toAlphaD); 
             if (govenorDone) {  
               go_to_next_cmd(machine);
             }
          }
          break;
-       case 2: // Claw move, with timer to give claw time to move.
+       case C_CLAW: // Claw move, with timer to give claw time to move.
          machine.angClaw = cmds[machine.n][2]/RADIAN;  // set the claw angle
          if ((millis()-machine.timerStart) > cmds[machine.n][1]) {
             machine.prior_mst = millis();
@@ -412,92 +426,6 @@ void logData(joint jt,char jt_letter) {
 struct machine_state make3; 
 struct joint jA,jB,jC,jD,jCLAW,jT,jS;
 
-// Command Values for picking and placing Skystone blocks
-/*
-#define MMPS 400 // mm per second
-#define X_PP 250 // x mm for pick and place
-#define Y_MV 200 // y swing in mm
-#define Y_MV_NEG -150 // y swing in mm
-#define FLOORH -80 // z of floor for picking
-#define BLOCKH 100 // block height mm
-#define BLOCKW 100 // block width mm
-#define ALPHAC -90 // global C angle, all moves
-#define ALPHADPICK -60 // global D for pick
-#define ALPHADPLACE -20 // global D for place
-#define CLAWCLOSE -37
-#define CLAWOPEN 20
-
-static int lineCmds[][SIZE_CMD_ARRAY]={{2,200,CLAWOPEN,0,0,0,0},
-                           {1,200, 100,400,300,  -90,90}, // ready
-                           {2,1000,CLAWOPEN,0,0,0,0}, // pause to pick 
-                           {2,1000,CLAWCLOSE,0,0,0,0}, // close to pick camera
-                           {1,200, 100,-400,300,   -90,-90}, // line over
-                           {0,1000,0,0,0,0,0},    // pause
-                           {1,200, 100,400,300,   -90,90}}; // line back
-                           
-static int cmd_array[][SIZE_CMD_ARRAY]={{2,100,CLAWOPEN,0,0,0,0},
-                           {1,100, X_PP,Y_MV,FLOORH+BLOCKH,  ALPHAC,ALPHADPICK}, // ready block 1
-                           {2,1000,CLAWOPEN,0,0,0,0}, // pause to pick block 1 - UNIQUE IN SEQUENCE
-                           {1,MMPS, X_PP,Y_MV,FLOORH,             ALPHAC,ALPHADPICK}, // down to block 2
-                           {2,500,CLAWCLOSE,0,0,0,0}, // pick block 1
-                           {1,MMPS, X_PP,Y_MV_NEG,FLOORH+1*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 1 
-                           {1,MMPS, X_PP,Y_MV_NEG,FLOORH,            ALPHAC,ALPHADPLACE}, // place block 1 
-                           {2,500,CLAWOPEN,0,0,0,0}, // drop block 1
-                           {1,MMPS, X_PP,Y_MV_NEG,FLOORH+1*BLOCKH,   ALPHAC,ALPHADPLACE}, // up clear block 1 
-                           
-                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,      ALPHAC,ALPHADPICK}, // ready block 2
-                           {1,MMPS, X_PP,Y_MV,FLOORH,             ALPHAC,ALPHADPICK}, // down to block 2
-                           {2,500,CLAWCLOSE,0,0,0,0}, // pick block 2
-                           {1,MMPS, X_PP,Y_MV_NEG+BLOCKW,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 2 
-                           {1,MMPS, X_PP,Y_MV_NEG,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 2 
-                           {1,MMPS/2, X_PP,Y_MV_NEG,FLOORH+1*BLOCKH, ALPHAC,ALPHADPLACE}, // place block 2 
-                           {2,500,CLAWOPEN,0,0,0,0}, // drop block 2
-                           {1,MMPS, X_PP,Y_MV_NEG,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // over block 2 
-                           {1,MMPS, X_PP,Y_MV_NEG+BLOCKW,FLOORH+2*BLOCKH,   ALPHAC,ALPHADPLACE}, // up clear block 2 
-                           
-                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // ready block 3
-                           {1,MMPS, X_PP,Y_MV,FLOORH,              ALPHAC,ALPHADPICK}, // down to block 2
-                           {2,500,CLAWCLOSE,0,0,0,0}, // pick  block 3
-                           {1,MMPS, X_PP,Y_MV_NEG+BLOCKW,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 3 
-                           {1,MMPS, X_PP,Y_MV_NEG,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 3 
-                           {1,MMPS/2, X_PP,Y_MV_NEG,FLOORH+2*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 3 
-                           {2,500,CLAWOPEN,0,0,0,0}, // drop block 3
-                           {1,MMPS, X_PP,Y_MV_NEG,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 3 
-                           {1,MMPS, X_PP,Y_MV_NEG+BLOCKW,FLOORH+3*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 3 
-                           
-                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // ready block 4
-                           {1,MMPS, X_PP,Y_MV,FLOORH,              ALPHAC,ALPHADPICK},  // pick block 4
-                           {2,500,CLAWCLOSE,0,0,0,0}, // pick  block 4
-                           {1,MMPS, X_PP,Y_MV_NEG+BLOCKW,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 4 
-                           {1,MMPS, X_PP,Y_MV_NEG,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 4 
-                           {1,MMPS/2, X_PP,Y_MV_NEG,FLOORH+3*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 4
-                           {2,500,CLAWOPEN,0,0,0,0}, // drop block 4
-                           {1,MMPS, X_PP,Y_MV_NEG,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 4 
-                           {1,MMPS, X_PP,Y_MV_NEG+BLOCKW,FLOORH+4*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 4 
-                           
-                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // pick block 5
-                           {1,MMPS, X_PP,Y_MV,FLOORH,             ALPHAC,ALPHADPICK},  // pick block 5
-                           {2,500,CLAWCLOSE,0,0,0,0}, // pick  block 5
-                           {1,MMPS, X_PP,Y_MV_NEG+BLOCKW,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 5 
-                           {1,MMPS, X_PP,Y_MV_NEG,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 5 
-                           {1,MMPS/2, X_PP,Y_MV_NEG,FLOORH+4*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 5
-                           {2,500,CLAWOPEN,0,0,0,0}, // drop block 5
-                           {1,MMPS, X_PP,Y_MV_NEG,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 5 
-                           {1,MMPS, X_PP,Y_MV_NEG+BLOCKW,FLOORH+5*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 5 
-                           
-                           {1,MMPS, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK},  // pick block 6
-                           {1,MMPS, X_PP,Y_MV,FLOORH,              ALPHAC,ALPHADPICK},  // pick block 6
-                           {2,500,CLAWCLOSE,0,0,0,0}, // pick  block 6
-                           {1,MMPS/2, X_PP,Y_MV_NEG+BLOCKW,FLOORH+6*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 6 
-                           {1,MMPS/2, X_PP,Y_MV_NEG,FLOORH+6*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 6 
-                           {1,MMPS/2, X_PP,Y_MV_NEG,FLOORH+5*BLOCKH,  ALPHAC,ALPHADPLACE}, // place block 6
-                           {2,500,CLAWOPEN,0,0,0,0}, // drop block 6
-                           {1,MMPS, X_PP-100,Y_MV_NEG,FLOORH+6*BLOCKH,    ALPHAC,ALPHADPLACE}, // up clear block 6 
-                           {1,MMPS/2, X_PP,Y_MV_NEG+2*BLOCKW,FLOORH+6*BLOCKH,    ALPHAC,ALPHADPLACE}, // over block 6 
-
-                           {1,MMPS/2, X_PP,Y_MV,FLOORH+BLOCKH,       ALPHAC,ALPHADPICK}};  // pick block ready
-*/
-
 // Command Values for picking 5 stack PowerPlay cones and placing on Mid height Junction
 #define MMPS 700 // mm per second
 #define X_PP 254 // y location for pick and place in mm
@@ -514,53 +442,55 @@ static int cmd_array[][SIZE_CMD_ARRAY]={{2,100,CLAWOPEN,0,0,0,0},
 #define LINEDANG 0
 #define LINEZ -50
 
-static int lineCmds[][SIZE_CMD_ARRAY]={{2,200,CLAWOPEN,0,0,0,0},
-                           {1,2000, 160,-S_CG_Z,LINEZ,  -90,LINEDANG}, // ready
-                           {2,1000,CLAWOPEN,0,0,0,0}, // pause to pick 
-                           {2,1000,CLAWCLOSE,0,0,0,0}, // close to pick camera
-                           {1,100, 160,-S_CG_Z,LINEZ+50,   -90,LINEDANG}, // line over
-                           {1,100, 700,-S_CG_Z,LINEZ+50,   -90,LINEDANG}, // line over
-                           {0,1000,0,0,0,0,0},    // pause
-                           {1,100, 160,-S_CG_Z,LINEZ+50,   -90,LINEDANG}}; // line back
+static int lineCmds[][SIZE_CMD_ARRAY]=
+  {{C_CLAW,200,CLAWOPEN,0,0,0,0},
+   {C_LINE,2000, 160,-S_CG_Z,LINEZ,  -90,LINEDANG}, // ready
+   {C_CLAW,1000,CLAWOPEN,0,0,0,0}, // pause to pick 
+   {C_CLAW,1000,CLAWCLOSE,0,0,0,0}, // close to pick camera
+   {C_LINE,100, 160,-S_CG_Z,LINEZ+50,   -90,LINEDANG}, // line over
+   {C_LINE,100, 700,-S_CG_Z,LINEZ+50,   -90,LINEDANG}, // line over
+   {C_TIME,1000,0,0,0,0,0},    // pause
+   {C_LINE,100, 160,-S_CG_Z,LINEZ+50,   -90,LINEDANG}}; // line back
                            
-static int cmd_array[][SIZE_CMD_ARRAY]={{2,1000,CLAWOPEN,0,0,0,0},  // open the claw, wherever it is, 1 second
-                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*7,  ALPHAC,ALPHADPICK}, // ready over cone 1
-                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*5,  ALPHAC,ALPHADPICK}, // down to cone 1
-                           {2,500,CLAWCLOSE,0,0,0,0}, // pick cone 1
-                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*9,   ALPHAC,ALPHADPLACE}, // up with cone 1 
-                           {1,MMPS, X_PP,Y_MV_NEG,MIDJUNTH,     ALPHAC,ALPHADPLACE}, // Move over Junction
-                           {2,500,CLAWOPEN,0,0,0,0}, // drop cone 1
-                           
-                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*6,      ALPHAC,ALPHADPICK}, // ready over cone 2
-                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*4,      ALPHAC,ALPHADPICK}, // down to cone 2
-                           {2,500,CLAWCLOSE,0,0,0,0}, // pick cone 2
-                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*8,    ALPHAC,ALPHADPLACE}, // up with cone 2 
-                           {1,MMPS, X_PP,Y_MV_NEG,MIDJUNTH,      ALPHAC,ALPHADPLACE}, // Move over Junction
-                           {2,500,CLAWOPEN,0,0,0,0}, // drop cone 2
-                           
-                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*5,       ALPHAC,ALPHADPICK},  // ready over cone 3
-                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*3,       ALPHAC,ALPHADPICK}, // down to cone 3
-                           {2,500,CLAWCLOSE,0,0,0,0}, // pick  cone 3
-                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*7,    ALPHAC,ALPHADPLACE}, // up with cone 3 
-                           {1,MMPS, X_PP,Y_MV_NEG,MIDJUNTH,      ALPHAC,ALPHADPLACE}, // Move over Junction
-                           {2,500,CLAWOPEN,0,0,0,0}, // drop cone 3
-                            
-                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*4,       ALPHAC,ALPHADPICK},  // ready over cone 4
-                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*2,       ALPHAC,ALPHADPICK},  // down to cone 4
-                           {2,500,CLAWCLOSE,0,0,0,0}, // pick  cone 4
-                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*6,     ALPHAC,ALPHADPLACE}, // up with cone 4 
-                           {1,MMPS, X_PP,Y_MV_NEG,MIDJUNTH,       ALPHAC,ALPHADPLACE}, // Move over Junction
-                           {2,500,CLAWOPEN,0,0,0,0}, // drop cone 4
-                            
-                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*3,       ALPHAC,ALPHADPICK},  // ready over cone 5
-                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*1,       ALPHAC,ALPHADPICK},  // down to cone 5
-                           {2,500,CLAWCLOSE,0,0,0,0}, // pick  cone 5
-                           {1,MMPS, X_PP,Y_MV,FLOORH+CONEH*5,    ALPHAC,ALPHADPLACE}, // up with cone 5 
-                           {1,MMPS, X_PP,Y_MV_NEG,MIDJUNTH,      ALPHAC,ALPHADPLACE}, // Move over Junction
-                           {2,500,CLAWOPEN,0,0,0,0}, // drop cone 5
-                           
-                           {1,MMPS/2, 300,0,FLOORH+6*CONEH,       ALPHAC,ALPHADPICK}};  // home position
- 
+static int cmd_array[][SIZE_CMD_ARRAY]=
+  {{C_CLAW,1000,CLAWOPEN,0,0,0,0},  // open the claw, wherever it is, 1 second
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH+CONEH*7,  ALPHAC,ALPHADPICK}, // ready over cone 1
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH+CONEH*5,  ALPHAC,ALPHADPICK}, // down to cone 1
+   {C_CLAW,500,CLAWCLOSE,0,0,0,0}, // pick cone 1
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH+CONEH*9,   ALPHAC,ALPHADPLACE}, // up with cone 1 
+   {C_LINE,MMPS, X_PP,Y_MV_NEG,MIDJUNTH,     ALPHAC,ALPHADPLACE}, // Move over Junction
+   {C_CLAW,500,CLAWOPEN,0,0,0,0}, // drop cone 1
+   
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH+CONEH*6,      ALPHAC,ALPHADPICK}, // ready over cone 2
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH+CONEH*4,      ALPHAC,ALPHADPICK}, // down to cone 2
+   {C_CLAW,500,CLAWCLOSE,0,0,0,0}, // pick cone 2
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH+CONEH*8,    ALPHAC,ALPHADPLACE}, // up with cone 2 
+   {C_LINE,MMPS, X_PP,Y_MV_NEG,MIDJUNTH,      ALPHAC,ALPHADPLACE}, // Move over Junction
+   {C_CLAW,500,CLAWOPEN,0,0,0,0}, // drop cone 2
+   
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH+CONEH*5,       ALPHAC,ALPHADPICK},  // ready over cone 3
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH+CONEH*3,       ALPHAC,ALPHADPICK}, // down to cone 3
+   {C_CLAW,500,CLAWCLOSE,0,0,0,0}, // pick  cone 3
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH+CONEH*7,    ALPHAC,ALPHADPLACE}, // up with cone 3 
+   {C_LINE,MMPS, X_PP,Y_MV_NEG,MIDJUNTH,      ALPHAC,ALPHADPLACE}, // Move over Junction
+   {C_CLAW,500,CLAWOPEN,0,0,0,0}, // drop cone 3
+    
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH+CONEH*4,       ALPHAC,ALPHADPICK},  // ready over cone 4
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH+CONEH*2,       ALPHAC,ALPHADPICK},  // down to cone 4
+   {C_CLAW,500,CLAWCLOSE,0,0,0,0}, // pick  cone 4
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH+CONEH*6,     ALPHAC,ALPHADPLACE}, // up with cone 4 
+   {C_LINE,MMPS, X_PP,Y_MV_NEG,MIDJUNTH,       ALPHAC,ALPHADPLACE}, // Move over Junction
+   {C_CLAW,500,CLAWOPEN,0,0,0,0}, // drop cone 4
+    
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH+CONEH*3,       ALPHAC,ALPHADPICK},  // ready over cone 5
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH+CONEH*1,       ALPHAC,ALPHADPICK},  // down to cone 5
+   {C_CLAW,500,CLAWCLOSE,0,0,0,0}, // pick  cone 5
+   {C_LINE,MMPS, X_PP,Y_MV,FLOORH+CONEH*5,    ALPHAC,ALPHADPLACE}, // up with cone 5 
+   {C_LINE,MMPS, X_PP,Y_MV_NEG,MIDJUNTH,      ALPHAC,ALPHADPLACE}, // Move over Junction
+   {C_CLAW,500,CLAWOPEN,0,0,0,0}, // drop cone 5
+   
+   {C_LINE,MMPS/2, 300,0,FLOORH+6*CONEH,       ALPHAC,ALPHADPICK}};  // home position
+
 void setup() {  // put your setup code here, to run once:
   //static int cmd_size = sizeof(cmd_array)/(SIZE_CMD_ARRAY*2);  // sizeof array.  2 bytes per int
   make3 = setup_ms(LEN_BC, 0.0, LEN_AB);
@@ -721,7 +651,7 @@ void loop() {  //########### MAIN LOOP ############
       // THESE LINES JUST FILL IN THE G point.
       //make3.prior_mst = millis();
       lineCG = anglesToG(jA.desired_angle,jB.desired_angle,jT.desired_angle,jC.desired_angle,jD.desired_angle, LEN_AB, LEN_BC,S_CG_X,S_CG_Y);
-      govenorDone = machineGovenor(make3, lineCG.p2, 400, jC.desired_angle, jD.desired_angle); 
+      govenorDone = lineMove(make3, lineCG.p2, 400, jC.desired_angle, jD.desired_angle); 
 
         pointC = clawToC(make3.at_ptG, make3.alphaC, make3.alphaD,S_CG_X,S_CG_Y,S_CG_Z);
         angles = inverse_arm_kinematics(pointC,LEN_AB,LEN_BC,S_TA); // find partial angles  TO DO  need goverened at point c
@@ -752,7 +682,7 @@ void loop() {  //########### MAIN LOOP ############
         pot_map(jT); // Turntable
         
         lineCG = anglesToG(jA.desired_angle,jB.desired_angle,jT.desired_angle,jC.desired_angle,jD.desired_angle, LEN_AB, LEN_BC,S_CG_X,S_CG_Y);
-        govenorDone = machineGovenor(make3, lineCG.p2, 2000, jC.desired_angle, jD.desired_angle); 
+        govenorDone = lineMove(make3, lineCG.p2, 2000, jC.desired_angle, jD.desired_angle); 
   
   
       break;
