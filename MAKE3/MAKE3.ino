@@ -194,6 +194,22 @@ float interpolate(float s, float dist, float p1, float p2) { // dist along s fro
   return new_pt;
 }
 
+float vec_mag(point p) {
+  return sqrt(pow((p.x),2)+pow(p.y,2)+pow(p.z,2));
+}
+
+float dot_prod (point p1, point p2) {
+  return p1.x*p2.x + p1.y*p2.y + p1.z*p2.z;
+}
+
+point cross_prod (point p1, point p2) {
+  static point cross_p;
+  cross_p.x = p1.y*p2.z - p1.z*p2.y;
+  cross_p.y = p1.z*p2.x - p1.x*p2.z;
+  cross_p.z = p1.x*p2.y - p1.y*p2.x;
+  return cross_p;
+}
+
 float * inverse_arm_kinematics(point c, float l_ab, float l_bc, float aOffset) {
   // Given arm system GroundT-TA-AB-BC-CD, where T (turntable) and A are [0,0,0]
   // The location of joint C (c[])  AND CX IS POSITIVE ONLY - TO DO SOLVE NEGATIVES
@@ -207,32 +223,41 @@ float * inverse_arm_kinematics(point c, float l_ab, float l_bc, float aOffset) {
   float xy_len, c_len, sub_angle1, sub_angle2;
   static float angles[3] = {0.0,0.0,0.0};  // [ A , B , T ]
   static point c_new;
+  static point z_vec = {0.0,0.0,1.0};
+  float dot;
 
   #define SMALL_L  2.0   // small length value, used to prevend divide by zero
-  
-  if((abs(c.x-aOffset) < SMALL_L) && (abs(c.z) < SMALL_L) ) {  // is c too close to A?
-    c.x = SMALL_L+aOffset;
-    c.z = 0.0;
-  }
-  
-  //if (c.x > 0) { // This math only works for positive Cx
-    angles[2] = atan2(c.y,c.x);  // note: atan2 order; y,x
 
-    c_new = rot_pt_z(c,-angles[2]); // rotate the point c onto the XZ plane using turntable angle
-    c_len = sqrt(pow((c_new.x-aOffset),2)+pow(c_new.z,2));   // XZ plane
+  //if (c.z < 100.0) c.z = 100.0;  // this keeps the arm from doing a pushup and frying a servo
   
-    if (c_len < l_ab+l_bc) {
-      // case where robot arm can reach
-      sub_angle1 = atan2(c_new.z,(c_new.x-aOffset));
-      sub_angle2 = acos((pow(c_len,2)+pow(l_ab,2)-pow(l_bc,2))/(2*c_len*l_ab));
-      angles[0] = sub_angle1 + sub_angle2;
-      angles[1] = acos((pow(l_bc,2)+pow(l_ab,2)-pow(c_len,2))/(2*l_bc*l_ab))-180.0/RADIAN;
-    } else {
-      // case where robot arm can not reach point... 
-      angles[0] = atan2(c_new.z,(c_new.x-aOffset)); // a angle point in direction to go
-      angles[1] = 0.0; // b is straight
-    } 
-  //}
+  c_len = vec_mag(c);
+  c_new = cross_prod(z_vec,c);
+  dot = acos(dot_prod(z_vec,c)/c_len);  // check for angle using dot, and if zero, arm is straight up
+
+  // This method prevents math errors when the arm is straight up
+  if (dot < 0.001) {
+    angles[2] = 0.0;  // arm is straight up, turntable = 0
+  } else {
+    angles[2] = atan2(abs(c_new.y),c_new.x) - 90.0/RADIAN; // normal
+  }
+
+  if (c.x < 0.0) {  // reverse the turntable angle if c.x is negative
+    angles[2] = -angles[2];
+  }
+  c_new = rot_pt_z(c,-angles[2]); // rotate the point c onto the XZ plane using turntable angle
+  c_len = sqrt(pow((c_new.x-aOffset),2)+pow(c_new.z,2));   // XZ plane
+
+  if (c_len < l_ab+l_bc) {
+    // case where robot arm can reach
+    sub_angle1 = atan2(c_new.z,(c_new.x-aOffset));
+    sub_angle2 = acos((pow(c_len,2)+pow(l_ab,2)-pow(l_bc,2))/(2*c_len*l_ab));
+    angles[0] = sub_angle1 + sub_angle2;
+    angles[1] = acos((pow(l_bc,2)+pow(l_ab,2)-pow(c_len,2))/(2*l_bc*l_ab))-180.0/RADIAN;
+  } else {
+    // case where robot arm can not reach point... 
+    angles[0] = atan2(c_new.z,(c_new.x-aOffset)); // a angle point in direction to go
+    angles[1] = 0.0; // b is straight
+  } 
   return angles;  // return the angles
 }
 
@@ -306,8 +331,8 @@ void servo_map(joint & jt) {
   jt.servo_ms = floatMap(jt.desired_angle, jt.svo.low_ang, jt.svo.high_ang, jt.svo.low_ms, jt.svo.high_ms);
 }
 
-boolean lineMove(machine_state & machine, point to_G, int mmps, float to_C, float to_D) { 
-  // limits movement (live a machine govenor) given feed rate (mmps)
+boolean lineMoveG(machine_state & machine, point to_G, int mmps, float to_C, float to_D) { 
+  // limits movement given feed rate (mmps)
   // updates .at_ptG based on speed limit
   // RETURNS true if done moving, false if not
   static unsigned long mst;
@@ -336,6 +361,29 @@ boolean lineMove(machine_state & machine, point to_G, int mmps, float to_C, floa
   }
 }
 
+void lineMoveC(machine_state & machine, point to_C, int mmps) { 
+  // Move to point C
+  // limits movement given feed rate (mmps)
+  // updates .at_ptG based on speed limit
+  // RETURNS true if done moving, false if not
+  static unsigned long mst;
+  static float line_len;
+  static point newG;
+  
+  mst = millis();
+  machine.dt = mst - machine.prior_mst; // delta time
+  machine.prior_mst = mst;
+  machine.moveDist = mmps * (machine.dt/1000.0); // feed rate (mm/sec)*sec = mm
+  
+  line_len = ptpt_dist(machine.at_ptG,to_C);
+  if (machine.moveDist < line_len) { // PARTIAL MOVE
+    newG = pt_on_line(machine.moveDist,line_len, machine.at_ptG,to_C);
+    machine.at_ptG = newG;
+  } else { // FULL MOVE
+    machine.at_ptG = to_C;
+  }
+}
+
 void go_to_next_cmd(machine_state & machine) {
   machine.n += 1; // go to the next command line
   machine.moveDist = 0.0;
@@ -345,7 +393,8 @@ void go_to_next_cmd(machine_state & machine) {
   }
 }
 
-void commands_loop(machine_state & machine, int cmds[][SIZE_CMD_ARRAY]) { 
+void commands_loop(machine_state & machine, int cmds[][SIZE_CMD_ARRAY], float scale) { 
+  // scale is used to scale the MMPS
   static point toCpt; 
   static float toAlphaC, toAlphaD;
   static boolean govenorDone;
@@ -366,10 +415,10 @@ void commands_loop(machine_state & machine, int cmds[][SIZE_CMD_ARRAY]) {
             toCpt.z = cmds[machine.n][4];
             toAlphaC = cmds[machine.n][5]/RADIAN;
             toAlphaD = cmds[machine.n][6]/RADIAN;
-            govenorDone = lineMove(machine, toCpt, cmds[machine.n][1],toAlphaC,toAlphaD); 
+            govenorDone = lineMoveG(machine, toCpt, cmds[machine.n][1]*scale,toAlphaC,toAlphaD); 
 
          } else {  // moving
-            govenorDone = lineMove(machine, toCpt, cmds[machine.n][1],toAlphaC,toAlphaD); 
+            govenorDone = lineMoveG(machine, toCpt, cmds[machine.n][1]*scale,toAlphaC,toAlphaD); 
             if (govenorDone) {  
               go_to_next_cmd(machine);
             }
@@ -560,9 +609,8 @@ void loop() {  //########### MAIN LOOP ############
   static float *angles;
   static float alphaB;
   static point pointC;
-  static line lineCG;
-  static boolean govenorDone;
-  static float testb;
+  static float zFloor; 
+  static float scale;
   
   jS.pot_value = analogRead(jS.pot.analog_pin);  // read the selector
 
@@ -586,16 +634,28 @@ void loop() {  //########### MAIN LOOP ############
   #endif
   
    switch (make3.state) {
-    case 0:  // DO NOTHING STATES
-    case 1:
-    case 3:
+    case 3: // DO NOTHING STATES
     case 5:
     case 10:
-      make3.prior_mst = millis();
+      //make3.prior_mst = millis();
+      //  These commands should smoothly move to arm to the last saved position
+      lineMoveC(make3, pointC, 500);   // Limits the speed of movement
+      angles = inverse_arm_kinematics(make3.at_ptG,LEN_AB,LEN_BC,S_TA); // find A, B, T angles
+      jA.desired_angle = angles[0]; // global A = local A
+      jB.desired_angle = angles[1];  // local B
+      jT.desired_angle = angles[2];  // global T
+
       break;
-    case 2: // COMMAND CONTROL  LINE
+    case 0:  
+    case 1:
+    case 2: // COMMAND CONTROL -- LINE
       make3.cmd_size = sizeof(lineCmds)/(SIZE_CMD_ARRAY*2); // TO DO, ONLY SET ONCE
-      commands_loop(make3,lineCmds);
+      
+      if (make3.state == 0) scale = 2.0;
+      if (make3.state == 1) scale = 0.5;
+      if (make3.state == 2) scale = 1.0;
+      
+      commands_loop(make3,lineCmds,scale); // get and calculate the moves
       
       pointC =  clawToC(make3.at_ptG, make3.alphaC, make3.alphaD, S_CG_X, S_CG_Y,S_CG_Z);
 
@@ -605,14 +665,14 @@ void loop() {  //########### MAIN LOOP ############
       alphaB = angles[0]+angles[1];  // global B
       jT.desired_angle = angles[2];  // global T
       jC.desired_angle = make3.alphaC-alphaB; // convert to a local C
-//      jD.desired_angle = make3.alphaD -  jT.desired_angle; // convert to a local D
       jD.desired_angle = make3.alphaD; // convert to a local D
       jCLAW.desired_angle = make3.angClaw;
       
       break;
-    case 4: // COMMAND CONTROL  C = -90  SAME AS CASE 2 PRESENTLY
+    case 4: // COMMAND CONTROL -- C = -90  WITH CMD_ARRAY
       make3.cmd_size = sizeof(cmd_array)/(SIZE_CMD_ARRAY*2); // TO DO, ONLY SET ONCE
-      commands_loop(make3,cmd_array);
+      scale = 1.0;
+      commands_loop(make3,cmd_array,scale); // get and calculate the moves
 
       pointC =  clawToC(make3.at_ptG, make3.alphaC, make3.alphaD, S_CG_X, S_CG_Y,S_CG_Z);
 
@@ -622,7 +682,6 @@ void loop() {  //########### MAIN LOOP ############
       alphaB = angles[0]+angles[1];  // global B
       jT.desired_angle = angles[2];  // global T
       jC.desired_angle = make3.alphaC-alphaB; // convert to a local C
-//      jD.desired_angle = make3.alphaD -  jT.desired_angle; // convert to a local D
       jD.desired_angle = make3.alphaD; // convert to a local D
       jCLAW.desired_angle = make3.angClaw;
       
@@ -636,55 +695,61 @@ void loop() {  //########### MAIN LOOP ############
       jT.pot_value = analogRead(jT.pot.analog_pin);  // read the turntable
       jCLAW.pot_value = analogRead(jCLAW.pot.analog_pin);  // read joint Claw
     
+      pot_map(jA);  // get A angle
+      pot_map(jB);  // get B angle
+      pot_map(jD); // Wrist
+      pot_map(jT); // Get Turntable angle
+      pot_map(jCLAW);   // get Claw angle
+
+      pointC = anglesToC(jA.desired_angle,jB.desired_angle,jT.desired_angle,LEN_AB,LEN_BC);
+      lineMoveC(make3, pointC, 300);   // Limits the speed of movement
+      
+      if (make3.state == 6) {
+        make3.alphaC = -90.0/RADIAN;
+        zFloor = 100.0;
+      }
+      if (make3.state == 7) {
+        make3.alphaC = -45.0/RADIAN;
+        zFloor = 50.0;
+      }
+      if (make3.state == 8) {
+        make3.alphaC = 0.0;
+        zFloor = 30.0;
+      }
+      if (pointC.z < zFloor) {
+        //pointC.z = zFloor;  // this keeps the arm from doing a pushup and frying a servo
+        make3.at_ptG.z = zFloor;
+      }
+      
+      jC.desired_angle = -jA.desired_angle - jB.desired_angle+make3.alphaC;
+      make3.angClaw = jC.desired_angle;
+
+      angles = inverse_arm_kinematics(make3.at_ptG,LEN_AB,LEN_BC,S_TA); // find A, B, T angles
+      jA.desired_angle = angles[0]; // global A = local A
+      jB.desired_angle = angles[1];  // local B
+      jT.desired_angle = angles[2];  // global T
+
+      break;
+    case 9:  // MANUAL CONTROL  
+      jA.pot_value = analogRead(jA.pot.analog_pin);  // read joint A
+      jB.pot_value = analogRead(jB.pot.analog_pin);  // read joint B
+      jD.pot_value = analogRead(jD.pot.analog_pin);  // read D wrist
+      jT.pot_value = analogRead(jT.pot.analog_pin);  // read the turntable
+      jCLAW.pot_value = analogRead(jCLAW.pot.analog_pin);  // read joint Claw
+    
       // Direct (full speed) method
       pot_map(jA);
       pot_map(jB);
       pot_map(jCLAW); 
-      if (make3.state == 6) make3.alphaC = -90.0/RADIAN;
-      if (make3.state == 7) make3.alphaC = -45.0/RADIAN;
-      if (make3.state == 8) make3.alphaC = 0.0;
-      jC.desired_angle = -jA.desired_angle - jB.desired_angle+make3.alphaC;
+      jC.desired_angle = -jA.desired_angle - jB.desired_angle-90.0/RADIAN;
       make3.angClaw = jC.desired_angle;
       pot_map(jD); // Wrist  TO DO  subtract turntable?
       pot_map(jT); // Turntable
 
-      // THESE LINES JUST FILL IN THE G point.
-      //make3.prior_mst = millis();
-      lineCG = anglesToG(jA.desired_angle,jB.desired_angle,jT.desired_angle,jC.desired_angle,jD.desired_angle, LEN_AB, LEN_BC,S_CG_X,S_CG_Y);
-      govenorDone = lineMove(make3, lineCG.p2, 400, jC.desired_angle, jD.desired_angle); 
-
-        pointC = clawToC(make3.at_ptG, make3.alphaC, make3.alphaD,S_CG_X,S_CG_Y,S_CG_Z);
-        angles = inverse_arm_kinematics(pointC,LEN_AB,LEN_BC,S_TA); // find partial angles  TO DO  need goverened at point c
-        jA.desired_angle = angles[0]; // global A = local A
-        jB.desired_angle = angles[1];  // local B
-        //alphaB = angles[0]+angles[1];  // global B
-        jT.desired_angle = angles[2];  // global T
-        //jC.desired_angle = make3.alphaC; //-alphaB; // convert to a local C
-        jD.desired_angle = make3.alphaD; // goverened d
-        //jD.desired_angle = make3.alphaD -  jT.desired_angle; // convert to a local D  TO DO  APPLY COMPENSATION ANGLES
-        //jCLAW.desired_angle = make3.angClaw;
-
-      break;
-    case 9:  // MANUAL CONTROL  
-        jA.pot_value = analogRead(jA.pot.analog_pin);  // read joint A
-        jB.pot_value = analogRead(jB.pot.analog_pin);  // read joint B
-        jD.pot_value = analogRead(jD.pot.analog_pin);  // read D wrist
-        jT.pot_value = analogRead(jT.pot.analog_pin);  // read the turntable
-        jCLAW.pot_value = analogRead(jCLAW.pot.analog_pin);  // read joint Claw
-      
-        // Direct (full speed) method
-        pot_map(jA);
-        pot_map(jB);
-        pot_map(jCLAW); 
-        jC.desired_angle = -jA.desired_angle - jB.desired_angle-90.0/RADIAN;
-        make3.angClaw = jC.desired_angle;
-        pot_map(jD); // Wrist  TO DO  subtract turntable?
-        pot_map(jT); // Turntable
-        
-        lineCG = anglesToG(jA.desired_angle,jB.desired_angle,jT.desired_angle,jC.desired_angle,jD.desired_angle, LEN_AB, LEN_BC,S_CG_X,S_CG_Y);
-        govenorDone = lineMove(make3, lineCG.p2, 2000, jC.desired_angle, jD.desired_angle); 
-  
-  
+      // The following lines are called to store the C point
+      pointC = anglesToC(jA.desired_angle,jB.desired_angle,jT.desired_angle,LEN_AB,LEN_BC);
+      lineMoveC(make3, pointC, 400);   // Limits the speed of movement
+    
       break;
   }
   // GET SERVO Pulse width VALUES FROM ARM OUTPUT ANGLE
@@ -698,7 +763,6 @@ void loop() {  //########### MAIN LOOP ############
   if (jCLAW.desired_angle > 18.0/RADIAN) jCLAW.desired_angle = 18.0/RADIAN;
   if (jCLAW.desired_angle < -49.0/RADIAN) jCLAW.desired_angle = -49.0/RADIAN;
   servo_map(jCLAW); 
-
 
   pwm.writeMicroseconds(jA.svo.digital_pin, jA.servo_ms); // Adafruit servo library
   pwm.writeMicroseconds(jB.svo.digital_pin, jB.servo_ms); // Adafruit servo library
