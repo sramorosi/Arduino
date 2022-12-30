@@ -638,7 +638,7 @@ void loop() {  //########### MAIN LOOP ############
     case 5:
     case 10:
       //make3.prior_mst = millis();
-      //  These commands should smoothly move to arm to the last saved position
+      //  These commands should smoothly move the arm to the last saved position
       lineMoveC(make3, pointC, 500);   // Limits the speed of movement
       angles = inverse_arm_kinematics(make3.at_ptG,LEN_AB,LEN_BC,S_TA); // find A, B, T angles
       jA.desired_angle = angles[0]; // global A = local A
@@ -752,16 +752,18 @@ void loop() {  //########### MAIN LOOP ############
     
       break;
   }
+  
+  // HARD LIMITS
+  if (jA.desired_angle > 150.0/RADIAN) jA.desired_angle = 150.0/RADIAN; // keep arm from going into baby arm
+  if (jCLAW.desired_angle > 18.0/RADIAN) jCLAW.desired_angle = 18.0/RADIAN;
+  if (jCLAW.desired_angle < -49.0/RADIAN) jCLAW.desired_angle = -49.0/RADIAN;
+
   // GET SERVO Pulse width VALUES FROM ARM OUTPUT ANGLE
   servo_map(jA);
   servo_map(jB);  
   servo_map(jC); 
   servo_map(jD); 
   servo_map(jT); 
-
-  // HARD LIMITS FOR CLAW
-  if (jCLAW.desired_angle > 18.0/RADIAN) jCLAW.desired_angle = 18.0/RADIAN;
-  if (jCLAW.desired_angle < -49.0/RADIAN) jCLAW.desired_angle = -49.0/RADIAN;
   servo_map(jCLAW); 
 
   pwm.writeMicroseconds(jA.svo.digital_pin, jA.servo_ms); // Adafruit servo library
@@ -779,12 +781,12 @@ void loop() {  //########### MAIN LOOP ############
     Serial.print(",");
     Serial.print(make3.at_ptG.z);
   
-//    logData(jA,'A');
+    logData(jA,'A');
 //    logData(jB,'B');
 //    logData(jC,'C');
 //    logData(jD,'D');
 //    logData(jT,'T');
-    logData(jCLAW,'X');
+//    logData(jCLAW,'X');
 //      logData(jS,'S');
     Serial.println(", END");
   #endif
