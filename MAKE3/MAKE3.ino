@@ -3,20 +3,27 @@
  */
 #include <Wire.h>
 #include <Adafruit_PWMServoDriver.h>
+
 #define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
-
 #define SERIALOUT true  // Controlls SERIAL output. Set true when debugging. 
-
 #define RADIAN 57.2957795  // number of degrees in one radian
-
-#define SIZE_CMD_ARRAY 7  // NUMBER OF VALUES PER COMMAND
+#define SIZE_CMD_ARRAY 5  // NUMBER OF VALUES PER COMMAND
 /*
- *  COMMAND CODES: SEE ARM SHEET
+ *  COMMAND CODES: All codes are integers
  *  Feed rate is in mm per second.
+ *  Angle rate is in Degrees per second.
+ *  Angles given in Degrees.  Location in mm.
  */
-#define C_TIME 0   // command code for timer
-#define C_LINE 1   // command code for line move
-#define C_CLAW 2   // command code for claw move
+// Synchronous commands (completes command before next command is sent)
+#define K_TIMER 1    // timer, millisconds
+#define K_LINE_G 2   // line move to new G point, feed rate, x,y,z
+#define K_LINE_G 3   // line move to new C point, feed rate, x,y,z
+// Asynchronous commands (does not wait to be completed)
+#define K_C_LOC 12    // C local move, angle rate, target angle
+#define K_C_ABS 22    // C Absolute Angle Mode, target angle
+#define K_D_LOC 13    // D local move, angle rate, target angle
+#define K_D_ABS 23     // D Absolute Angle Mode, target angle
+#define K_CLAW_LOC 14   // claw local move, angle rate, target angle
 
  /*
  *  STRUCTURES FOR MATH, SERVOS, POTENTIOMETERS, JOINTS, and ARM
@@ -36,7 +43,7 @@ struct potentiometer {
   //      Values outside of the low and high will be extrapolated
 };
 
-struct arm_servo {
+struct servo {
   // Values are pulse width in microseconds (~400 to ~2400--SERVOS SHOULD BE TESTED)
   // 270 deg servo, gets 290 deg motion with 400 to 2500 microsecond range
   // 180 deg servo, gets 160 deg motion with 500 to 2800 microsecond range
@@ -50,23 +57,25 @@ struct arm_servo {
 
 struct joint {
   potentiometer pot; // Sub structure which contains static pot information
-  arm_servo svo; // Sub structure which contains the static servo information
+  servo svo; // Sub structure which contains the static servo information
   int pot_value;  // current potentiometer value in millivolts 
   float pot_angle; // Potentiometer arm angle, if used, in radians
   float current_angle; // last issued command for angl, in radians
   float target_angle;  // where the angle should end up, in radians
-  float target_velocity;  // radians per second
+  float target_velocity;  // radians per millisecond
 };
 
-struct commands {  
+struct command {
+  int arg[SIZE_CMD_ARRAY];
+};
+
+struct commandS {  
   int num_cmds;
-  int cmds[][SIZE_CMD_ARRAY];
+  command cmds[];
 };
 
 struct arm {  // as in Robot Arm
   int state; // The different ways that the arm can be controlled. Set by S potentiometer
-  boolean initialize; // =true if one needs to initialize state
-  //int cmd_size; // size of the command array
   int n; // current active index in the command array
   unsigned long prior_mst; // clock time (microseconds) prior loop 
   unsigned long dt; // delta loop time in ms
@@ -82,8 +91,8 @@ struct arm {  // as in Robot Arm
 };
 
 // SETTERS,  INITIALIZERS
-potentiometer set_pot(int pin, int lowmv, float lowang, int highmv, float highang) {
-  // set_pot(pin,lowmv,lowang,highmv,highang)
+potentiometer initPot(int pin, int lowmv, float lowang, int highmv, float highang) {
+  // initPot(pin,lowmv,lowang,highmv,highang)
   // Note: low and high values do not need to be  at the extreems
   struct potentiometer pot;
   pot.analog_pin = pin;
@@ -94,10 +103,10 @@ potentiometer set_pot(int pin, int lowmv, float lowang, int highmv, float highan
   return pot;
 }
 
-arm_servo set_servo(int pin, float lowang, int lowms, float highang, int highms) {
-  // set_servo(pin,lowang,lowms,highang,highmv)
+servo initServo(int pin, float lowang, int lowms, float highang, int highms) {
+  // initServo(pin,lowang,lowms,highang,highmv)
   // Note: low and high values do not need to be  at the extreems
-  struct arm_servo svo;
+  struct servo svo;
   svo.digital_pin = pin;
   svo.low_ang = lowang;
   svo.low_ms = lowms;
@@ -106,28 +115,30 @@ arm_servo set_servo(int pin, float lowang, int lowms, float highang, int highms)
   return svo;
 }
 
-void set_joint(joint & jt, float initial_angle) {
+void initJoint(joint & jt, float initial_angle) {
   // Sets initial joint values
   // Note: can't read physical servo angle, so can jump on startup
   //jt.pot_value = 500;  // middle ish
   jt.current_angle = initial_angle;
   jt.target_angle = initial_angle;
-  jt.target_velocity = 2.0;  // default initial velocity, radians per second
+  jt.target_velocity = 20.0/RADIAN/1000.0;  // default initial velocity, radians per microsecond
 }
 
-arm set_arm(point pt) { // starting point for C or G on arm
+arm initArm(point pt) { // starting point for C or G on arm
   // initialize arm structure
   struct arm ms;
   ms.state = 0;
-  ms.initialize = true;
   ms.n = 0;  // first command
-  //ms.cmd_size = 0;
   ms.prior_mst = millis();
+  ms.dt = 10;  //  TO BE TUNED?
+  ms.timerStart = millis();
+  ms.moveDist = 100.0;  // TO BE TUNED?
   ms.current_pt = pt;
   return ms;
 }
 
-float set_C_Abs(arm the_arm, float fixed_angle) { // returns joint angle C, using A and B
+float getCang(arm the_arm, float fixed_angle) { // returns joint angle C, using A and B
+  // Assumes that you want an absolute (fixed) C angle
   return -the_arm.jA.current_angle - the_arm.jB.current_angle + fixed_angle;
 }
 
@@ -206,7 +217,7 @@ point cross_prod (point p1, point p2) {
 }
 
 float * inverse_arm_kinematics(point c, float l_ab, float l_bc, float aOffset) {
-  // Given arm system GroundT-TA-AB-BC-CD, where T (turntable) and A are [0,0,0]
+  // Given arm system GroundT-TA-AB-BC, where T (turntable) and A are [0,0,0]
   // The location of joint C (c[])  AND CX IS POSITIVE ONLY - TO DO SOLVE NEGATIVES
   // The lengths Length AB (l_ab) and Length BC (l_bc) are specified
   //   aOffset is the distance in X from the Turtable axis to the A axis
@@ -327,9 +338,6 @@ boolean lineMoveG(arm & the_arm, point to_G, int mmps, float to_C, float to_D) {
   static float line_len, newC, newD;
   static point newG;
   
-  mst = millis();
-  the_arm.dt = mst - the_arm.prior_mst; // delta time
-  the_arm.prior_mst = mst;
   the_arm.moveDist = mmps * (the_arm.dt/1000.0); // feed rate (mm/sec)*sec = mm
   
   line_len = ptpt_dist(the_arm.current_pt,to_G);
@@ -371,78 +379,93 @@ void lineMoveC(arm & the_arm, point to_C, int mmps) {
     the_arm.current_pt = to_C;
   }
 }
-
-void go_to_next_cmd(arm & the_arm, commands & the_cmds) {
-  the_arm.n += 1; // go to the next command line
-  the_arm.moveDist = 0.0;
-  the_arm.timerStart = millis();
-  if (the_arm.n >= the_cmds.num_cmds) { // end of command lines, stop
-    the_arm.n = 9999; // signals end of commands
-  }
-}
-
-void commands_loop(arm & the_arm, commands & the_cmds, float scale) { 
-  // scale is used to scale the MMPS
-  static point toCpt; 
-  static float toabsC, toAlphaD;
-  static boolean govenorDone;
-
-  // read type of command
-  if (the_arm.n != 9999) {
-    switch (the_cmds.cmds[the_arm.n][0]) {
-      case C_TIME: // DELAY (timer)
-        if ((millis()-the_arm.timerStart) > the_cmds.cmds[the_arm.n][1]) {
-          the_arm.prior_mst = millis();
-          go_to_next_cmd(the_arm, the_cmds);        
-        }
-        break;
-      case C_LINE: // line move
-        if (the_arm.moveDist == 0.0) { // initialize line
-            toCpt.x = the_cmds.cmds[the_arm.n][2];
-            toCpt.y = the_cmds.cmds[the_arm.n][3];
-            toCpt.z = the_cmds.cmds[the_arm.n][4];
-            toabsC = the_cmds.cmds[the_arm.n][5]/RADIAN;
-            toAlphaD = the_cmds.cmds[the_arm.n][6]/RADIAN;
-            govenorDone = lineMoveG(the_arm, toCpt, the_cmds.cmds[the_arm.n][1]*scale,toabsC,toAlphaD); 
-
-         } else {  // moving
-            govenorDone = lineMoveG(the_arm, toCpt, the_cmds.cmds[the_arm.n][1]*scale,toabsC,toAlphaD); 
-            if (govenorDone) {  
-              go_to_next_cmd(the_arm, the_cmds);
-            }
-         }
-         break;
-       case C_CLAW: // Claw move, with timer to give claw time to move.
-         the_arm.jCLAW.target_angle = the_cmds.cmds[the_arm.n][2]/RADIAN;  // set the claw angle
-         if ((millis()-the_arm.timerStart) > the_cmds.cmds[the_arm.n][1]) {
-            the_arm.prior_mst = millis();
-            go_to_next_cmd(the_arm, the_cmds);        
-          }
-         break;
-    } // end switch   
-  }
-}
-
-void state_setup(arm & the_arm) { // Call every loop, to check for a state change
-  if (the_arm.initialize) { 
-    the_arm.n = 0; // reset array pointer
-    the_arm.moveDist = 0.0;  // reset govenor distance
-    //the_arm.cmd_size = 0;  // sizeof array.
-    the_arm.initialize = false;
-  }  
-}
-
 void logData(joint jt,char jt_letter) {
-  Serial.print(",");
+//  Serial.print(",");
   Serial.print(jt_letter);
 //  Serial.print(", p_value,");
 //  Serial.print(jt.pot_value);
 //  Serial.print(", Pang,");
 //  Serial.print(jt.pot_angle*RADIAN,1);
-  Serial.print(",");
-//  Serial.print(",dsr_ang,");
+//  Serial.print(",");
+  Serial.print(",current_ang (DEG),");
+  Serial.print(jt.current_angle*RADIAN,1);
+  Serial.print(",target_ang (DEG),");
   Serial.print(jt.target_angle*RADIAN,1);
+  Serial.print(",target_vel (DEG/SEC),");
+  Serial.print(jt.target_velocity*RADIAN*1000.0,1);
+  Serial.println(" . ");
 } 
+
+void readCommands(arm & the_arm, commandS & the_cmds) {
+  // step through commands
+  static boolean newCmd = true;
+  if (the_arm.n >= the_cmds.num_cmds) {
+    return;  
+  } else if (newCmd) {  // command initialization
+    the_arm.moveDist = 0.0;
+    the_arm.timerStart = millis();  // for timed commands
+    newCmd = false;
+    Serial.print("NEW COMMAND, N,");
+    Serial.print(the_arm.n);
+    Serial.print("arg[0],");
+    Serial.println(the_cmds.cmds[the_arm.n].arg[0]);
+  } else {
+    if (runCommand(the_arm, the_cmds.cmds[the_arm.n])) {
+      the_arm.n += 1; // go to the next command line
+      newCmd = true;    
+    };   
+  }
+}
+boolean runCommand(arm & the_arm, command & the_cmd) { 
+  // TRUE if DONE, FALSE is NOT DONE
+  // scale is used to scale the MMPS:  REDO, MODIFY COMMAND ARRAY
+  static point toCpt; 
+  static float toabsC, toAlphaD;
+  static boolean govenorDone;
+
+  // read type of command
+  switch (the_cmd.arg[0]) {
+    case K_TIMER: // DELAY (timer)
+      if ((millis()-the_arm.timerStart) > the_cmd.arg[1])
+        return true;
+      else
+        return false;
+      break;
+    case K_C_LOC:  // C servo
+      // second argument is NEW VELO FOR C, DEG per Second
+      if (the_cmd.arg[1] < 2) the_cmd.arg[1] = 1; // NO Negatives or Zeros
+      the_arm.jC.target_velocity = the_cmd.arg[1]/RADIAN/1000.0;
+      the_arm.jC.target_angle = the_cmd.arg[2]/RADIAN;  // Third arg is NEW ANGLE FOR C
+      logData(the_arm.jC,'C');
+      break;
+      /*
+    case K_LINE_G: // line move
+      if (the_arm.moveDist == 0.0) { // initialize line
+          toCpt.x = the_cmds.cmds[the_arm.n].arg[2];
+          toCpt.y = the_cmds.cmds[the_arm.n].arg[3];
+          toCpt.z = the_cmds.cmds[the_arm.n].arg[4];
+          toabsC = the_cmds.cmds[the_arm.n].arg[5]/RADIAN;
+          toAlphaD = the_cmds.cmds[the_arm.n].arg[6]/RADIAN;
+          govenorDone = lineMoveG(the_arm, toCpt, the_cmds.cmds[the_arm.n].arg[1]*scale,toabsC,toAlphaD); 
+  
+       } else {  // moving
+          govenorDone = lineMoveG(the_arm, toCpt, the_cmds.cmds[the_arm.n].arg[1]*scale,toabsC,toAlphaD); 
+          if (govenorDone) {  
+            go_to_next_cmd(the_arm, the_cmds);
+          }
+       }
+       break;
+     case K_CLAW_LOC: // Claw move, with timer to give claw time to move.
+      * 
+       the_arm.jCLAW.target_angle = the_cmds.cmds[the_arm.n][2]/RADIAN;  // set the claw angle
+       if ((millis()-the_arm.timerStart) > the_cmds.cmds[the_arm.n][1]) {
+          go_to_next_cmd(the_arm, the_cmds);        
+        }
+       break;
+       */
+  } // end switch   
+}
+
 
 // <<<<<<<<<<<<<<<<<<<<<<<<END MOTION CONTROL CODE HERE
 
@@ -457,7 +480,7 @@ void logData(joint jt,char jt_letter) {
 #define S_CG_Z 40.0     // offset from joint C to G in Z
 
 struct arm make3; 
-struct joint jS;
+joint jS;  // selector pot
 
 // called this way, it uses the default address 0x40
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
@@ -470,45 +493,43 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 #define FLOORH -60 // z of floor for picking cone from floor
 #define MIDJUNTH 600 // z height of Mid Juction for placing
 #define CONEH 32 // DELTA cone height STACKED mm
-#define HORIZONTAL 0 // global C angle, all moves
-#define ALPHADPICK 0 // global D for pick
-#define ALPHADPLACE 0 // global D for place
+//#define HORIZONTAL 0 // global C angle, all moves
+//#define ALPHADPICK 0 // global D for pick
+//#define ALPHADPLACE 0 // global D for place
 #define CLAWCLOSE -50
 #define CLAWOPEN 30
-#define LINEDANG 0
+//#define LINEDANG 0
 #define LINEZ -50
 
-static commands lineCmds = 
+static commandS lineCmds = 
   {8,  // size of the array.  It gets set correct on startup
-   {{C_CLAW,200,CLAWOPEN,0,0,0,0},
-   {C_LINE,2000, 160,-S_CG_Z,LINEZ,  -90,LINEDANG}, // ready
-   {C_CLAW,1000,CLAWOPEN,0,0,0,0}, // pause to pick 
-   {C_CLAW,1000,CLAWCLOSE,0,0,0,0}, // close to pick camera
-   {C_LINE,100, 160,-S_CG_Z,LINEZ+50,   -90,LINEDANG}, // line over
-   {C_LINE,100, 700,-S_CG_Z,LINEZ+50,   -90,LINEDANG}, // line over
-   {C_TIME,1000,0,0,0,0,0},    // pause
-   {C_LINE,100, 160,-S_CG_Z,LINEZ+50,   -90,LINEDANG}}}; // line back
+   {{K_CLAW_LOC,200,CLAWOPEN,0,0},
+   {K_LINE_G,2000, 160,-S_CG_Z,LINEZ}, // ready
+   {K_CLAW_LOC,1000,CLAWOPEN,0,0}, // pause to pick 
+   {K_CLAW_LOC,1000,CLAWCLOSE,0,0}, // close to pick camera
+   {K_LINE_G,100, 160,-S_CG_Z,LINEZ+50}, // line over
+   {K_LINE_G,100, 700,-S_CG_Z,LINEZ+50}, // line over
+   {K_TIMER,1000,0,0,0},    // pause
+   {K_LINE_G,100, 160,-S_CG_Z,LINEZ+50}}}; // line back
                            
-static commands test2cmds =
+static commandS test2cmds =
    {7,
-   {{C_CLAW,1000,CLAWOPEN,0,0,0,0},  // open the claw, wherever it is, 1 second
-   {C_LINE,MMPS, X_PP,Y_MV,FLOORH+CONEH*7,  HORIZONTAL,ALPHADPICK}, // ready over cone 1
-   {C_LINE,MMPS, X_PP,Y_MV,FLOORH+CONEH*5,  HORIZONTAL,ALPHADPICK}, // down to cone 1
-   {C_CLAW,500,CLAWCLOSE,0,0,0,0}, // pick cone 1
-   {C_LINE,MMPS, X_PP,Y_MV,FLOORH+CONEH*9,   HORIZONTAL,ALPHADPLACE}, // up with cone 1 
-   {C_LINE,MMPS, X_PP,Y_MV_NEG,MIDJUNTH,     HORIZONTAL,ALPHADPLACE}, // Move over Junction
-   {C_CLAW,500,CLAWOPEN,0,0,0,0}}}; // drop cone 1
+   {{K_CLAW_LOC,100,CLAWOPEN,0,0},  // open the claw
+   {K_LINE_G,MMPS, X_PP,Y_MV,FLOORH+CONEH*7}, // ready over cone 1
+   {K_LINE_G,MMPS, X_PP,Y_MV,FLOORH+CONEH*5}, // down to cone 1
+   {K_CLAW_LOC,500,CLAWCLOSE,0,0}, // pick cone 1
+   {K_LINE_G,MMPS, X_PP,Y_MV,FLOORH+CONEH*9}, // up with cone 1 
+   {K_LINE_G,MMPS, X_PP,Y_MV_NEG,MIDJUNTH}, // Move over Junction
+   {K_CLAW_LOC,500,CLAWOPEN,0,0}}}; // drop cone 1
 
-void setup() {  // put your setup code here, to run once:
-  make3 = set_arm({LEN_BC, 0.0, LEN_AB});
-  make3.state = 1; 
+void setup() {  // setup code here, to run once:
 
   #if SERIALOUT  
-    Serial.begin(9600); // baud rate
-    //while (!Serial) {
-    //  ; // wait for serial port to connect. Needed for native USB port only
-    //} 
+    Serial.begin(115200); // baud rate
   #endif
+
+  make3 = initArm({LEN_BC, 0.0, LEN_AB});
+  make3.state = 1; 
 
   pwm.begin();
   /*  Adafruit sevo library
@@ -531,72 +552,145 @@ void setup() {  // put your setup code here, to run once:
   pwm.setPWMFreq(SERVO_FREQ);  // Analog servos run at ~50 Hz updates
   
   // TUNE POT LOW AND HIGH VALUES
-  // set_pot(pin,lowmv,lowang,highmv,highang)
-  make3.jA.pot = set_pot(0 ,134,  0/RADIAN, 895, 178/RADIAN); // good
-  make3.jB.pot = set_pot(1 ,500,-90/RADIAN, 908,  0/RADIAN); // good
-  //jC.pot = set_pot(3 , 116,-90/RADIAN, 903, 90/RADIAN); // C will not have a pot on Make3
-  make3.jD.pot = set_pot(2 ,250, 60/RADIAN, 747, -60/RADIAN); 
-  make3.jT.pot = set_pot(4 ,166, -90/RADIAN, 960, 90/RADIAN); // better
-  make3.jCLAW.pot = set_pot(3 , 250,-50/RADIAN, 750, 50/RADIAN);  // input arm is limited to 250 to 750
-  jS.pot = set_pot(5 , 0, 0/RADIAN, 1023, 280/RADIAN);  // to tune
+  // initPot(pin,lowmv,lowang,highmv,highang)
+  make3.jA.pot = initPot(0 ,134,  0/RADIAN, 895, 178/RADIAN); // good
+  make3.jB.pot = initPot(1 ,500,-90/RADIAN, 908,  0/RADIAN); // good
+  //jC.pot = initPot(3 , 116,-90/RADIAN, 903, 90/RADIAN); // C will not have a pot on Make3
+  make3.jD.pot = initPot(2 ,250, 60/RADIAN, 747, -60/RADIAN); 
+  make3.jT.pot = initPot(4 ,166, -90/RADIAN, 960, 90/RADIAN); // better
+  make3.jCLAW.pot = initPot(3 , 250,-50/RADIAN, 750, 50/RADIAN);  // input arm is limited to 250 to 750
+  jS.pot = initPot(5 , 0, 0/RADIAN, 1023, 280/RADIAN);  // to tune
 
   // TUNE SERVO LOW AND HIGH VALUES
-  // set_servo(pin,lowang,lowms,highang,highms)
-  make3.jA.svo = set_servo(0,  2.2/RADIAN, 478, 176.8/RADIAN, 2390); // good
-  make3.jB.svo = set_servo(1, 0.0/RADIAN, 500,-175.0/RADIAN, 2320); // good
-  make3.jC.svo = set_servo(2, -153.5/RADIAN, 475, 5.0/RADIAN, 2156); // good.  TO DO REPLACE WITH 270 DEG SERVO
-  make3.jD.svo = set_servo(3,  -90.0/RADIAN,  811, 90.0/RADIAN, 2054); // good
-  make3.jCLAW.svo = set_servo(4, -50.0/RADIAN,  900, 50.0/RADIAN, 1900); // 45 DEG = FULL OPEN, -45 = FULL CLOSE
-  make3.jT.svo = set_servo(5,  0.0/RADIAN,  1650, 90.0/RADIAN, 450); // good, SERVO RANGE: -57 TO +92 DEG
+  // initServo(pin,lowang,lowms,highang,highms)
+  make3.jA.svo = initServo(0,  2.2/RADIAN, 478, 176.8/RADIAN, 2390); // good
+  make3.jB.svo = initServo(1, 0.0/RADIAN, 500,-175.0/RADIAN, 2320); // good
+  make3.jC.svo = initServo(2, -153.5/RADIAN, 475, 5.0/RADIAN, 2156); // good.  TO DO REPLACE WITH 270 DEG SERVO
+  make3.jD.svo = initServo(3,  -90.0/RADIAN,  811, 90.0/RADIAN, 2054); // good
+  make3.jCLAW.svo = initServo(4, -50.0/RADIAN,  900, 50.0/RADIAN, 1900); // 45 DEG = FULL OPEN, -45 = FULL CLOSE
+  make3.jT.svo = initServo(5,  0.0/RADIAN,  1650, 90.0/RADIAN, 450); // good, SERVO RANGE: -57 TO +92 DEG
 
   // INITIALIZE ANGLES FOR ARM
-  set_joint(make3.jA, 130.0/RADIAN);  
-  set_joint(make3.jB,  -130.0/RADIAN);
-  set_joint(make3.jC,  -70.0/RADIAN);
-  set_joint(make3.jD,   0.0/RADIAN);
-  set_joint(make3.jT,    -10.0/RADIAN); 
-  set_joint(make3.jCLAW,  45.0/RADIAN); 
+  initJoint(make3.jA, 130.0/RADIAN);  
+  initJoint(make3.jB,  -130.0/RADIAN);
+  initJoint(make3.jC,  -70.0/RADIAN);
+  initJoint(make3.jD,   0.0/RADIAN);
+  initJoint(make3.jT,    -10.0/RADIAN); 
+  initJoint(make3.jCLAW,  45.0/RADIAN); 
 
   // INITIALIZE COMMAND ARRAYS
   //test2cmds.num_cmds= sizeof(test2cmds.cmds)/(SIZE_CMD_ARRAY*2); 
   //lineCmds.num_cmds = sizeof(lineCmds.cmds)/(SIZE_CMD_ARRAY*2); 
 }
 
+void stateLoop(arm & the_arm) {
+  // call this at the begining of loop()  
+  static int old_state = -1;  // should force initialize first pass
+  // joint jS is a global variable
+  
+  jS.pot_value = analogRead(jS.pot.analog_pin);  // read the selector
+  the_arm.state = jS.pot_value/100; // convert to an integer from 0 to 9
+  
+  if (the_arm.state != old_state){
+    the_arm.n = 0; // reset array pointer
+    the_arm.moveDist = 0.0;  // reset govenor distance
+    Serial.print("NEW STATE,");
+    Serial.println(the_arm.state);
+  }
+  old_state = the_arm.state;
+}
+
+void updateJointBySpeed(joint & jt, unsigned long dt) {
+  // NOTE dt is in milliseconds
+  float radps;  // radians per millisecond
+  radps = (jt.target_angle-jt.current_angle)/dt;  // full move speed
+  if (radps > jt.target_velocity) {
+    jt.current_angle += jt.target_velocity*dt;
+    logData(jt,'+');
+  } else  if (radps < -jt.target_velocity) {
+    jt.current_angle -= jt.target_velocity*dt;
+    logData(jt,'-');
+  } else {
+    jt.current_angle = jt.target_angle; // done
+    //logData(jt,'D');
+  }
+}
+
+void loopUpdateArm (arm & the_arm) {
+  unsigned long mst;
+  mst = millis();
+  the_arm.dt = mst - the_arm.prior_mst; // loop time, milliseconds
+  // Keep dt (delta time) in reasonable range
+  if (the_arm.dt > 30) {
+    the_arm.dt = 10;
+    Serial.println(">30 DT");
+  } else if (the_arm.dt < 2) {
+    the_arm.dt = 1;
+    Serial.println("<2 DT");    
+  }
+  the_arm.prior_mst = mst;
+  // NEED TO CHECK FOR DIFFERENT MODES THAT THE JOINTS CAN MOVE
+  // JOINTS A B T ARE DRIVEN BY POINT
+  // JOINT C AND D CAN BE GLOBAL OR LOCAL
+  // JOINT CLAW IS ALWAYS LOCAL
+  updateJointBySpeed(the_arm.jC, the_arm.dt);  // TO BE ENHANCED
+
+/*  
+ *   THE POINT METHOD OF UPDATING
+  pointC =  clawToC(make3.current_pt, make3.jC.current_angle, make3.jC.current_angle, S_CG_X, S_CG_Y,S_CG_Z);
+  
+  angles = inverse_arm_kinematics(pointC,LEN_AB,LEN_BC,S_TA); 
+  the_arm.jA.current_angle = angles[0]; // global A = local A
+  the_arm.jB.current_angle = angles[1];  // local B
+  the_arm.jT.current_angle = angles[2];  // global T
+  the_arm.jC.current_angle = getCang(the_arm,the_arm.jC.target_angle);
+  the_arm.jD.current_angle = the_arm.jD.target_angle; 
+ */
+}
+command getCmdSerial() { // read command from serial port
+  // If cmd.arg[0] = 0 then command has NOT been read
+  command cmd;
+  int i;
+
+  cmd.arg[0] = 0;
+  
+  if (Serial.available() > 0){
+
+    for (i=1;i<SIZE_CMD_ARRAY;i++) 
+      cmd.arg[i] = 0;  // initialize
+
+    i=0;
+    while (Serial.available() > 0) {
+      cmd.arg[i] = Serial.parseInt(); // get available ints
+      i++;
+    }    
+    // print the command
+    Serial.print("Command: ");
+    for (i=0;i<SIZE_CMD_ARRAY;i++) {
+      Serial.print(cmd.arg[i]);
+      Serial.print(",");
+    }
+    Serial.println("END");
+  }
+  return(cmd); 
+}
+
 void loop() {  //########### MAIN LOOP ############
   // put your main code here, to run repeatedly:
-  static int old_state = -1;
   static float *angles;
   static float alphaB;
   static point pointC;
   static float zFloor; 
   static float mmps_scale;
-  
-  jS.pot_value = analogRead(jS.pot.analog_pin);  // read the selector
+  command cmd;
 
-  make3.state = jS.pot_value/100; // convert to an integer from 0 to 9
-  if (make3.state != old_state)
-      make3.initialize=true;
-  old_state = make3.state;
-  state_setup(make3);  // check if state changed
-
-  #if SERIALOUT
-    Serial.print("ms,");
-    Serial.print(make3.prior_mst);
-    Serial.print(", STATE,");
-    Serial.print(make3.state);
-    //Serial.print(",cmd_size,");
-    //Serial.print(make3.cmd_size);
-    Serial.print(", N,"); // command line
-    Serial.print(make3.n);
-    //Serial.print(", CMD,");
-    //Serial.print(cmd_array[make3.n][0]); 
-  #endif
+  stateLoop(make3);  // checks for state change
   
-   switch (make3.state) {
-    case 3: // DO NOTHING STATES
+  switch (make3.state) {
+    case 0: // DO NOTHING STATES 
+    case 1:
     case 5:
     case 10:
-      //make3.prior_mst = millis();
       //  These commands should smoothly move the arm to the last saved position
       lineMoveC(make3, pointC, 500);   // Limits the speed of movement
       angles = inverse_arm_kinematics(make3.current_pt,LEN_AB,LEN_BC,S_TA); // find A, B, T angles
@@ -604,16 +698,16 @@ void loop() {  //########### MAIN LOOP ############
       make3.jB.current_angle = angles[1];  // local B
       make3.jT.current_angle = angles[2];  // global T
 
+      loopUpdateArm(make3);
+      
       break;
-    case 0:  
-    case 1:
     case 2: // COMMAND CONTROL -- LINE
       
       if (make3.state == 0) mmps_scale = 2.0;
       if (make3.state == 1) mmps_scale = 0.5;
       if (make3.state == 2) mmps_scale = 1.0;
       
-      commands_loop(make3,    lineCmds    ,mmps_scale); // get and calculate the moves
+      // FIX runCommand(make3,    lineCmds    ,mmps_scale); // get and calculate the moves
       
       pointC =  clawToC(make3.current_pt, make3.jC.current_angle, make3.jC.current_angle, S_CG_X, S_CG_Y,S_CG_Z);
 
@@ -621,13 +715,18 @@ void loop() {  //########### MAIN LOOP ############
       make3.jA.current_angle = angles[0]; // global A = local A
       make3.jB.current_angle = angles[1];  // local B
       make3.jT.current_angle = angles[2];  // global T
-      make3.jC.current_angle = set_C_Abs(make3,make3.jC.target_angle);
+      make3.jC.current_angle = getCang(make3,make3.jC.target_angle);
       make3.jD.current_angle = make3.jD.target_angle; 
       
       break;
+    case 3: // Serial Read
+      cmd = getCmdSerial();  // returns zeros if no command
+      runCommand(make3, cmd);  // doesn't do anything with zero command
+      loopUpdateArm(make3);  // EVENTUALLY MODE TO BOTTOM
+      break;
     case 4: // COMMAND CONTROL -- C = -90  WITH xxx
       mmps_scale = 1.0;
-      commands_loop(make3,    test2cmds   ,mmps_scale); // get and calculate the moves
+      // FIX runCommand(make3,    test2cmds   ,mmps_scale); // get and calculate the moves
 
       pointC =  clawToC(make3.current_pt, make3.jC.current_angle, make3.jD.current_angle, S_CG_X, S_CG_Y,S_CG_Z);
 
@@ -635,7 +734,7 @@ void loop() {  //########### MAIN LOOP ############
       make3.jA.current_angle = angles[0]; // global A = local A
       make3.jB.current_angle = angles[1];  // local B
       make3.jT.current_angle = angles[2];  // global T
-      make3.jC.current_angle = set_C_Abs(make3,-90.0/RADIAN);
+      make3.jC.current_angle = getCang(make3,-90.0/RADIAN);
       make3.jD.current_angle = make3.jD.target_angle; 
       
       break;
@@ -658,15 +757,15 @@ void loop() {  //########### MAIN LOOP ############
       lineMoveC(make3, pointC, 300);   // Limits the speed of movement
       
       if (make3.state == 6) {
-        make3.jC.current_angle = set_C_Abs(make3,-90.0/RADIAN);
+        make3.jC.current_angle = getCang(make3,-90.0/RADIAN);
         zFloor = 100.0;
       }
       if (make3.state == 7) {
-        make3.jC.current_angle = set_C_Abs(make3,-45.0/RADIAN);
+        make3.jC.current_angle = getCang(make3,-45.0/RADIAN);
         zFloor = 50.0;
       }
       if (make3.state == 8) {
-        make3.jC.current_angle = set_C_Abs(make3, 0.0);
+        make3.jC.current_angle = getCang(make3, 0.0);
         zFloor = 30.0;
       }
       if (pointC.z < zFloor) {
@@ -690,7 +789,7 @@ void loop() {  //########### MAIN LOOP ############
       pot_map(make3.jA);
       pot_map(make3.jB);
       pot_map(make3.jCLAW); 
-      make3.jC.current_angle = set_C_Abs(make3,-90.0/RADIAN);
+      make3.jC.current_angle = getCang(make3,-90.0/RADIAN);
       pot_map(make3.jD); // Wrist  TO DO  subtract turntable?
       pot_map(make3.jT); // Turntable
 
@@ -713,7 +812,20 @@ void loop() {  //########### MAIN LOOP ############
   pwm.writeMicroseconds(make3.jD.svo.digital_pin, servo_map(make3.jD)); // Adafruit servo library
   pwm.writeMicroseconds(make3.jCLAW.svo.digital_pin, servo_map(make3.jCLAW)); // Adafruit servo library
   pwm.writeMicroseconds(make3.jT.svo.digital_pin, servo_map(make3.jT)); // Adafruit servo library
+} // END OF MAIN LOOP
 
+/*  
+ *   NOT SURE WHERE
+  #if SERIALOUT
+    Serial.print("ms,");
+    Serial.print(make3.prior_mst);
+    //Serial.print(",cmd_size,");
+    //Serial.print(make3.cmd_size);
+    Serial.print(", N,"); // command line
+    Serial.print(make3.n);
+    //Serial.print(", CMD,");
+    //Serial.print(cmd_array[make3.n][0]); 
+  #endif
   #if SERIALOUT
     Serial.print(",G,");
     Serial.print(make3.current_pt.x);
@@ -731,5 +843,5 @@ void loop() {  //########### MAIN LOOP ############
 //      logData(make3.jS,'S');
     Serial.println(", END");
   #endif
-}
+ */
 //
