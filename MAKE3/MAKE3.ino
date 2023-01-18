@@ -5,7 +5,6 @@
 #include <Adafruit_PWMServoDriver.h>
 
 #define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates
-#define SERIALOUT true  // Controlls SERIAL output. Set true when debugging. 
 #define RADIAN 57.2957795  // number of degrees in one radian
 #define SIZE_CMD_ARRAY 5  // NUMBER OF VALUES PER COMMAND
 /*
@@ -16,8 +15,8 @@
  */
 // Synchronous commands (completes command before next command is sent)
 #define K_TIMER 1    // timer, millisconds
-#define K_LINE_G 2   // line move to new G point, feed rate, x,y,z
-#define K_LINE_G 3   // line move to new C point, feed rate, x,y,z
+#define K_LINE_C 2   // line move to new C point, feed rate, x,y,z
+#define K_LINE_G 3   // line move to new G point, feed rate, x,y,z
 // Asynchronous commands (does not wait to be completed)
 #define K_C_LOC 12    // C local move, angle rate, target angle
 #define K_C_ABS 22    // C Absolute Angle Mode, target angle
@@ -32,7 +31,7 @@ struct point {float x,y,z;};
 
 struct line {struct point p1 , p2; };
 
-struct potentiometer {
+struct potentiometer 
   int analog_pin; // Arduino analog pin number (0 - 5)
   int low_mv; // low voltage value, from 0 (0 Volts) to 1023 (5 Volts)
   float low_ang; // corresponding angle at low voltage, in radians
@@ -58,7 +57,8 @@ struct servo {
 struct joint {
   potentiometer pot; // Sub structure which contains static pot information
   servo svo; // Sub structure which contains the static servo information
-  int pot_value;  // current potentiometer value in millivolts 
+  int pot_value;  // current potentiometer value in millivolts
+  boolean global;  // used for special cases where joint moves based on formula
   float pot_angle; // Potentiometer arm angle, if used, in radians
   float current_angle; // last issued command for angl, in radians
   float target_angle;  // where the angle should end up, in radians
@@ -80,8 +80,9 @@ struct arm {  // as in Robot Arm
   unsigned long prior_mst; // clock time (microseconds) prior loop 
   unsigned long dt; // delta loop time in ms
   unsigned long timerStart; // timer, for delays
-  float moveDist; // distance to travel in current move
+  float feedRate; // feed rate for point moves, in mm/sec
   point current_pt; // current (C or G) point 
+  point target_pt;  // target C or G point
   joint jA;
   joint jB;
   joint jC;
@@ -118,23 +119,22 @@ servo initServo(int pin, float lowang, int lowms, float highang, int highms) {
 void initJoint(joint & jt, float initial_angle) {
   // Sets initial joint values
   // Note: can't read physical servo angle, so can jump on startup
-  //jt.pot_value = 500;  // middle ish
+  jt.global = false;
   jt.current_angle = initial_angle;
   jt.target_angle = initial_angle;
-  jt.target_velocity = 20.0/RADIAN/1000.0;  // default initial velocity, radians per microsecond
+  jt.target_velocity = 60.0/RADIAN/1000.0;  // default initial velocity, radians per microsecond
 }
 
-arm initArm(point pt) { // starting point for C or G on arm
+void initArm(arm & the_arm, point pt) { // starting point for C or G on arm
   // initialize arm structure
-  struct arm ms;
-  ms.state = 0;
-  ms.n = 0;  // first command
-  ms.prior_mst = millis();
-  ms.dt = 10;  //  TO BE TUNED?
-  ms.timerStart = millis();
-  ms.moveDist = 100.0;  // TO BE TUNED?
-  ms.current_pt = pt;
-  return ms;
+  the_arm.state = 0;
+  the_arm.n = 0;  // first command
+  the_arm.prior_mst = millis();
+  the_arm.dt = 10;  //  TO BE TUNED?
+  the_arm.timerStart = millis();
+  the_arm.feedRate = 300.0/1000.0;  // TO BE TUNED?
+  the_arm.current_pt = pt;
+  the_arm.target_pt = pt;
 }
 
 float getCang(arm the_arm, float fixed_angle) { // returns joint angle C, using A and B
@@ -330,55 +330,67 @@ float servo_map(joint & jt) { // Map current joint angle to the servo microsecon
   return floatMap(jt.current_angle, jt.svo.low_ang, jt.svo.high_ang, jt.svo.low_ms, jt.svo.high_ms);
 }
 
-boolean lineMoveG(arm & the_arm, point to_G, int mmps, float to_C, float to_D) { 
-  // limits movement given feed rate (mmps)
+boolean updateArmPtG(arm & the_arm, float to_C, float to_D) { 
+  // Moves current point G toward target_pt at given feed rate (mmps)
   // updates .current_pt based on speed limit
   // RETURNS true if done moving, false if not
-  static unsigned long mst;
-  static float line_len, newC, newD;
+  static float moveDist,line_len, newC, newD;
   static point newG;
   
-  the_arm.moveDist = mmps * (the_arm.dt/1000.0); // feed rate (mm/sec)*sec = mm
-  
-  line_len = ptpt_dist(the_arm.current_pt,to_G);
-  if (the_arm.moveDist < line_len) { // PARTIAL MOVE
-    newG = pt_on_line(the_arm.moveDist,line_len, the_arm.current_pt,to_G);
+  moveDist = the_arm.feedRate * (the_arm.dt/1000.0); // feed rate (mm/sec)*sec = mm  
+  line_len = ptpt_dist(the_arm.current_pt,the_arm.target_pt);
+  if (moveDist < line_len) { // PARTIAL MOVE
+    newG = pt_on_line(moveDist,line_len, the_arm.current_pt,the_arm.target_pt);
     the_arm.current_pt = newG;
-    newC = interpolate(the_arm.moveDist,line_len, the_arm.jC.target_angle,to_C);
+    Serial.print("PARTIAL MOVE PT G (mm),");
+    Serial.println(moveDist,1);
+    newC = interpolate(moveDist,line_len, the_arm.jC.target_angle,to_C);
     the_arm.jC.current_angle = newC;
-    newD = interpolate(the_arm.moveDist,line_len, the_arm.jD.target_angle,to_D);
+    newD = interpolate(moveDist,line_len, the_arm.jD.target_angle,to_D);
     the_arm.jD.current_angle = newD;
     return false;
   } else { // FULL MOVE
-    the_arm.current_pt = to_G;
+    the_arm.current_pt = the_arm.target_pt;
     the_arm.jC.current_angle = to_C;
     the_arm.jD.current_angle = to_D;
     return true;
   }
 }
 
-void lineMoveC(arm & the_arm, point to_C, int mmps) { 
-  // Move to point C
-  // limits movement given feed rate (mmps)
+void updateArmPtC(arm & the_arm) { 
+  // Moves current point C toward target_pt at given feed rate (mmps)
   // updates .current_pt based on speed limit
-  // RETURNS true if done moving, false if not
-  static unsigned long mst;
-  static float line_len;
-  static point newG;
+  float moveDist,line_len;
+  point newC;
   
-  mst = millis();
-  the_arm.dt = mst - the_arm.prior_mst; // delta time
-  the_arm.prior_mst = mst;
-  the_arm.moveDist = mmps * (the_arm.dt/1000.0); // feed rate (mm/sec)*sec = mm
-  
-  line_len = ptpt_dist(the_arm.current_pt,to_C);
-  if (the_arm.moveDist < line_len) { // PARTIAL MOVE
-    newG = pt_on_line(the_arm.moveDist,line_len, the_arm.current_pt,to_C);
-    the_arm.current_pt = newG;
-  } else { // FULL MOVE
-    the_arm.current_pt = to_C;
+  moveDist = the_arm.feedRate/1000.0 * (the_arm.dt); // feed rate (mm/sec)*sec = mm  
+  line_len = ptpt_dist(the_arm.current_pt,the_arm.target_pt);
+  if (moveDist < line_len) { // PARTIAL MOVE
+    newC = pt_on_line(moveDist,line_len, the_arm.current_pt,the_arm.target_pt);
+    the_arm.current_pt = newC;
+    Serial.print("PARTIAL MOVE PT C (mm),");
+    Serial.print(moveDist,1);
+    logPoint(the_arm);
+   } else { // FULL MOVE
+    the_arm.current_pt = the_arm.target_pt;
+    //logPoint(the_arm);
   }
 }
+void logPoint(arm & the_arm) {
+  Serial.print("CURRENT PT,");
+  Serial.print(the_arm.current_pt.x);
+  Serial.print(",");
+  Serial.print(the_arm.current_pt.y);
+  Serial.print(",");
+  Serial.print(the_arm.current_pt.z);
+  Serial.print(",   TARGET PT,");
+  Serial.print(the_arm.target_pt.x);
+  Serial.print(",");
+  Serial.print(the_arm.target_pt.y);
+  Serial.print(",");
+  Serial.println(the_arm.target_pt.z);
+}
+ 
 void logData(joint jt,char jt_letter) {
 //  Serial.print(",");
   Serial.print(jt_letter);
@@ -402,7 +414,6 @@ void readCommands(arm & the_arm, commandS & the_cmds) {
   if (the_arm.n >= the_cmds.num_cmds) {
     return;  
   } else if (newCmd) {  // command initialization
-    the_arm.moveDist = 0.0;
     the_arm.timerStart = millis();  // for timed commands
     newCmd = false;
     Serial.print("NEW COMMAND, N,");
@@ -426,9 +437,11 @@ boolean runCommand(arm & the_arm, command & the_cmd) {
   // read type of command
   switch (the_cmd.arg[0]) {
     case K_TIMER: // DELAY (timer)
-      if ((millis()-the_arm.timerStart) > the_cmd.arg[1])
+      if ((millis()-the_arm.timerStart) > the_cmd.arg[1]) {
+        Serial.print("TIMER DONE, ");
+        Serial.println((millis()-the_arm.timerStart));
         return true;
-      else
+      } else
         return false;
       break;
     case K_C_LOC:  // C servo
@@ -436,9 +449,29 @@ boolean runCommand(arm & the_arm, command & the_cmd) {
       if (the_cmd.arg[1] < 2) the_cmd.arg[1] = 1; // NO Negatives or Zeros
       the_arm.jC.target_velocity = the_cmd.arg[1]/RADIAN/1000.0;
       the_arm.jC.target_angle = the_cmd.arg[2]/RADIAN;  // Third arg is NEW ANGLE FOR C
+      the_arm.jC.global = false;
       logData(the_arm.jC,'C');
+      return true;
       break;
-      /*
+    case K_D_LOC:  // D servo
+      // second argument is NEW VELO FOR D, DEG per Second
+      if (the_cmd.arg[1] < 2) the_cmd.arg[1] = 1; // NO Negatives or Zeros
+      the_arm.jD.target_velocity = the_cmd.arg[1]/RADIAN/1000.0;
+      the_arm.jD.target_angle = the_cmd.arg[2]/RADIAN;  // Third arg is NEW ANGLE FOR D
+      the_arm.jD.global = false;
+      logData(the_arm.jD,'D');
+      return true;
+      break;
+    case K_CLAW_LOC:  // CLAW servo
+      // second argument is NEW VELO FOR C, DEG per Second
+      if (the_cmd.arg[1] < 2) the_cmd.arg[1] = 1; // NO Negatives or Zeros
+      the_arm.jCLAW.target_velocity = the_cmd.arg[1]/RADIAN/1000.0;
+      the_arm.jCLAW.target_angle = the_cmd.arg[2]/RADIAN;  // Third arg is NEW ANGLE FOR Claw
+      the_arm.jCLAW.global = false;
+      logData(the_arm.jCLAW,'X');
+      return true;
+      break;
+       /*
     case K_LINE_G: // line move
       if (the_arm.moveDist == 0.0) { // initialize line
           toCpt.x = the_cmds.cmds[the_arm.n].arg[2];
@@ -465,7 +498,6 @@ boolean runCommand(arm & the_arm, command & the_cmd) {
        */
   } // end switch   
 }
-
 
 // <<<<<<<<<<<<<<<<<<<<<<<<END MOTION CONTROL CODE HERE
 
@@ -524,12 +556,9 @@ static commandS test2cmds =
 
 void setup() {  // setup code here, to run once:
 
-  #if SERIALOUT  
-    Serial.begin(115200); // baud rate
-  #endif
+  Serial.begin(115200); // baud rate
+  delay(1500);  // serial output needs a delay
 
-  make3 = initArm({LEN_BC, 0.0, LEN_AB});
-  make3.state = 1; 
 
   pwm.begin();
   /*  Adafruit sevo library
@@ -576,11 +605,15 @@ void setup() {  // setup code here, to run once:
   initJoint(make3.jC,  -70.0/RADIAN);
   initJoint(make3.jD,   0.0/RADIAN);
   initJoint(make3.jT,    -10.0/RADIAN); 
-  initJoint(make3.jCLAW,  45.0/RADIAN); 
+  initJoint(make3.jCLAW,  17.0/RADIAN); 
 
-  // INITIALIZE COMMAND ARRAYS
-  //test2cmds.num_cmds= sizeof(test2cmds.cmds)/(SIZE_CMD_ARRAY*2); 
-  //lineCmds.num_cmds = sizeof(lineCmds.cmds)/(SIZE_CMD_ARRAY*2); 
+  initArm(make3,{LEN_BC, 0.0, LEN_AB});
+  make3.state = 1; 
+
+  // INITIALIZE COMMAND ARRAYS ... NOT WORKING
+  Serial.print("ARRAY SIZE ");
+  Serial.println(sizeof(test2cmds.cmds[0]),1); 
+  //lineCmds.num_cmds = sizeof(lineCmds)/(SIZE_CMD_ARRAY*2); 
 }
 
 void stateLoop(arm & the_arm) {
@@ -593,7 +626,6 @@ void stateLoop(arm & the_arm) {
   
   if (the_arm.state != old_state){
     the_arm.n = 0; // reset array pointer
-    the_arm.moveDist = 0.0;  // reset govenor distance
     Serial.print("NEW STATE,");
     Serial.println(the_arm.state);
   }
@@ -606,9 +638,11 @@ void updateJointBySpeed(joint & jt, unsigned long dt) {
   radps = (jt.target_angle-jt.current_angle)/dt;  // full move speed
   if (radps > jt.target_velocity) {
     jt.current_angle += jt.target_velocity*dt;
+    Serial.print(jt.svo.digital_pin);
     logData(jt,'+');
   } else  if (radps < -jt.target_velocity) {
     jt.current_angle -= jt.target_velocity*dt;
+    Serial.print(jt.svo.digital_pin);
     logData(jt,'-');
   } else {
     jt.current_angle = jt.target_angle; // done
@@ -617,9 +651,11 @@ void updateJointBySpeed(joint & jt, unsigned long dt) {
 }
 
 void loopUpdateArm (arm & the_arm) {
+  // Loop time.  Used for speeds.
   unsigned long mst;
   mst = millis();
   the_arm.dt = mst - the_arm.prior_mst; // loop time, milliseconds
+  the_arm.prior_mst = mst;
   // Keep dt (delta time) in reasonable range
   if (the_arm.dt > 30) {
     the_arm.dt = 10;
@@ -628,25 +664,33 @@ void loopUpdateArm (arm & the_arm) {
     the_arm.dt = 1;
     Serial.println("<2 DT");    
   }
-  the_arm.prior_mst = mst;
-  // NEED TO CHECK FOR DIFFERENT MODES THAT THE JOINTS CAN MOVE
-  // JOINTS A B T ARE DRIVEN BY POINT
-  // JOINT C AND D CAN BE GLOBAL OR LOCAL
-  // JOINT CLAW IS ALWAYS LOCAL
-  updateJointBySpeed(the_arm.jC, the_arm.dt);  // TO BE ENHANCED
-
-/*  
- *   THE POINT METHOD OF UPDATING
-  pointC =  clawToC(make3.current_pt, make3.jC.current_angle, make3.jC.current_angle, S_CG_X, S_CG_Y,S_CG_Z);
-  
-  angles = inverse_arm_kinematics(pointC,LEN_AB,LEN_BC,S_TA); 
+   
+  // NEED TO IMPLEMENT C VS G
+  // JOINTS A B T ARE DRIVEN BY POINT C
+  static float *angles;
+  updateArmPtC(the_arm);
+  angles = inverse_arm_kinematics(the_arm.current_pt,LEN_AB,LEN_BC,S_TA); 
   the_arm.jA.current_angle = angles[0]; // global A = local A
   the_arm.jB.current_angle = angles[1];  // local B
   the_arm.jT.current_angle = angles[2];  // global T
-  the_arm.jC.current_angle = getCang(the_arm,the_arm.jC.target_angle);
-  the_arm.jD.current_angle = the_arm.jD.target_angle; 
- */
+
+  // JOINT C CAN BE GLOBAL OR LOCAL
+  if (the_arm.jC.global) {
+    the_arm.jC.current_angle = getCang(the_arm,the_arm.jC.target_angle);
+  } else {
+    updateJointBySpeed(the_arm.jC, the_arm.dt);  
+  }
+
+  // JOINT D CAN BE GLOBAL OR LOCAL
+  if (the_arm.jD.global) {
+    the_arm.jD.current_angle = the_arm.jT.current_angle - the_arm.jD.target_angle; // TBD     
+  } else {
+    updateJointBySpeed(the_arm.jD, the_arm.dt);  
+  }
+
+  updateJointBySpeed(the_arm.jCLAW, the_arm.dt);  // update Claw joint
 }
+
 command getCmdSerial() { // read command from serial port
   // If cmd.arg[0] = 0 then command has NOT been read
   command cmd;
@@ -676,31 +720,14 @@ command getCmdSerial() { // read command from serial port
 }
 
 void loop() {  //########### MAIN LOOP ############
-  // put your main code here, to run repeatedly:
-  static float *angles;
-  static float alphaB;
-  static point pointC;
-  static float zFloor; 
   static float mmps_scale;
-  command cmd;
+  command cmd;  // used in Serial Read
 
   stateLoop(make3);  // checks for state change
   
   switch (make3.state) {
-    case 0: // DO NOTHING STATES 
-    case 1:
-    case 5:
-    case 10:
-      //  These commands should smoothly move the arm to the last saved position
-      lineMoveC(make3, pointC, 500);   // Limits the speed of movement
-      angles = inverse_arm_kinematics(make3.current_pt,LEN_AB,LEN_BC,S_TA); // find A, B, T angles
-      make3.jA.current_angle = angles[0]; // global A = local A
-      make3.jB.current_angle = angles[1];  // local B
-      make3.jT.current_angle = angles[2];  // global T
-
-      loopUpdateArm(make3);
-      
-      break;
+    case 0: 
+    case 1: 
     case 2: // COMMAND CONTROL -- LINE
       
       if (make3.state == 0) mmps_scale = 2.0;
@@ -708,39 +735,34 @@ void loop() {  //########### MAIN LOOP ############
       if (make3.state == 2) mmps_scale = 1.0;
       
       // FIX runCommand(make3,    lineCmds    ,mmps_scale); // get and calculate the moves
-      
-      pointC =  clawToC(make3.current_pt, make3.jC.current_angle, make3.jC.current_angle, S_CG_X, S_CG_Y,S_CG_Z);
-
-      angles = inverse_arm_kinematics(pointC,LEN_AB,LEN_BC,S_TA); 
-      make3.jA.current_angle = angles[0]; // global A = local A
-      make3.jB.current_angle = angles[1];  // local B
-      make3.jT.current_angle = angles[2];  // global T
-      make3.jC.current_angle = getCang(make3,make3.jC.target_angle);
-      make3.jD.current_angle = make3.jD.target_angle; 
-      
       break;
     case 3: // Serial Read
       cmd = getCmdSerial();  // returns zeros if no command
-      runCommand(make3, cmd);  // doesn't do anything with zero command
-      loopUpdateArm(make3);  // EVENTUALLY MODE TO BOTTOM
+      if (cmd.arg[0] != 0) make3.timerStart=millis();  // start timer if there is a command
+      while (!runCommand(make3, cmd)) {
+        //Serial.println("NOT TRUE");  // for timer (HALTS LOOP!)
+      }
       break;
     case 4: // COMMAND CONTROL -- C = -90  WITH xxx
       mmps_scale = 1.0;
       // FIX runCommand(make3,    test2cmds   ,mmps_scale); // get and calculate the moves
-
-      pointC =  clawToC(make3.current_pt, make3.jC.current_angle, make3.jD.current_angle, S_CG_X, S_CG_Y,S_CG_Z);
-
-      angles = inverse_arm_kinematics(pointC,LEN_AB,LEN_BC,S_TA); 
-      make3.jA.current_angle = angles[0]; // global A = local A
-      make3.jB.current_angle = angles[1];  // local B
-      make3.jT.current_angle = angles[2];  // global T
-      make3.jC.current_angle = getCang(make3,-90.0/RADIAN);
-      make3.jD.current_angle = make3.jD.target_angle; 
-      
+      //pointC =  clawToC(make3.current_pt, make3.jC.current_angle, make3.jD.current_angle, S_CG_X, S_CG_Y,S_CG_Z);
       break;
+    case 5: break;
     case 6:  
     case 7:
     case 8: // MANUAL CONTROL WITH GOVENOR
+      if (make3.state == 6) {
+        make3.jC.target_angle = -90.0/RADIAN;
+      }
+      if (make3.state == 7) {
+        make3.jC.target_angle = -45.0/RADIAN;
+      }
+      if (make3.state == 8) {
+        make3.jC.target_angle = 0.0;
+      }
+      make3.jC.global = true;
+      
       make3.jA.pot_value = analogRead(make3.jA.pot.analog_pin);  // read joint A
       make3.jB.pot_value = analogRead(make3.jB.pot.analog_pin);  // read joint B
       make3.jD.pot_value = analogRead(make3.jD.pot.analog_pin);  // read D wrist
@@ -753,57 +775,30 @@ void loop() {  //########### MAIN LOOP ############
       pot_map(make3.jT); // Get Turntable angle
       pot_map(make3.jCLAW);   // get Claw angle
 
-      pointC = anglesToC(make3.jA.current_angle,make3.jB.current_angle,make3.jT.current_angle,LEN_AB,LEN_BC);
-      lineMoveC(make3, pointC, 300);   // Limits the speed of movement
-      
-      if (make3.state == 6) {
-        make3.jC.current_angle = getCang(make3,-90.0/RADIAN);
-        zFloor = 100.0;
-      }
-      if (make3.state == 7) {
-        make3.jC.current_angle = getCang(make3,-45.0/RADIAN);
-        zFloor = 50.0;
-      }
-      if (make3.state == 8) {
-        make3.jC.current_angle = getCang(make3, 0.0);
-        zFloor = 30.0;
-      }
-      if (pointC.z < zFloor) {
-        //pointC.z = zFloor;  // this keeps the arm from doing a pushup and frying a servo
-        make3.current_pt.z = zFloor;
-      }
-      angles = inverse_arm_kinematics(make3.current_pt,LEN_AB,LEN_BC,S_TA); // find A, B, T angles
-      make3.jA.current_angle = angles[0]; // global A = local A
-      make3.jB.current_angle = angles[1];  // local B
-      make3.jT.current_angle = angles[2];  // global T
+      make3.feedRate = 400.0;  // mm per second
+      make3.target_pt = anglesToC(make3.jA.target_angle,make3.jB.target_angle,make3.jT.target_angle,LEN_AB,LEN_BC);
+
+      //Serial.print("MAIN LOOP,");
+      //logPoint(make3);
 
       break;
-    case 9:  // MANUAL CONTROL  
-      make3.jA.pot_value = analogRead(make3.jA.pot.analog_pin);  // read joint A
-      make3.jB.pot_value = analogRead(make3.jB.pot.analog_pin);  // read joint B
-      make3.jD.pot_value = analogRead(make3.jD.pot.analog_pin);  // read D wrist
-      make3.jT.pot_value = analogRead(make3.jT.pot.analog_pin);  // read the turntable
-      make3.jCLAW.pot_value = analogRead(make3.jCLAW.pot.analog_pin);  // read joint Claw
-    
-      // Direct (full speed) method
-      pot_map(make3.jA);
-      pot_map(make3.jB);
-      pot_map(make3.jCLAW); 
-      make3.jC.current_angle = getCang(make3,-90.0/RADIAN);
-      pot_map(make3.jD); // Wrist  TO DO  subtract turntable?
-      pot_map(make3.jT); // Turntable
-
-      // The following lines are called to store the C point
-      pointC = anglesToC(make3.jA.current_angle,make3.jB.current_angle,make3.jT.current_angle,LEN_AB,LEN_BC);
-      lineMoveC(make3, pointC, 400);   // Limits the speed of movement
-    
-      break;
+    case 9: break;
+    case 10: break;
   }
+
+  // PRE UPDATE HARD LIMITS...  THIS SHOULD USE POINT G.Z
+  if (make3.current_pt.z < 100.0) {  // this keeps the arm from doing a pushup and frying a servo
+    Serial.print("FLOOR (mm),");
+    Serial.println(make3.current_pt.z,1);
+    make3.current_pt.z = 100.0;
+  }
+
+  loopUpdateArm(make3);  // ARM UPDATE (MOVES CURRENT TOWARD TARGETS)
   
   // HARD LIMITS
   if (make3.jA.current_angle > 150.0/RADIAN) make3.jA.current_angle = 150.0/RADIAN; // keep arm from going into baby arm
   if (make3.jCLAW.current_angle > 18.0/RADIAN) make3.jCLAW.current_angle = 18.0/RADIAN;
-  if (make3.jCLAW.current_angle < -49.0/RADIAN) make3.jCLAW.current_angle = -49.0/RADIAN;
+  if (make3.jCLAW.current_angle < -49.0/RADIAN) make3.jCLAW.current_angle = -49.0/RADIAN;  // WAS -49?
 
   // Convert CURRENT angle to PWM signal and send 
   pwm.writeMicroseconds(make3.jA.svo.digital_pin, servo_map(make3.jA)); // Adafruit servo library
@@ -816,7 +811,6 @@ void loop() {  //########### MAIN LOOP ############
 
 /*  
  *   NOT SURE WHERE
-  #if SERIALOUT
     Serial.print("ms,");
     Serial.print(make3.prior_mst);
     //Serial.print(",cmd_size,");
@@ -825,15 +819,7 @@ void loop() {  //########### MAIN LOOP ############
     Serial.print(make3.n);
     //Serial.print(", CMD,");
     //Serial.print(cmd_array[make3.n][0]); 
-  #endif
-  #if SERIALOUT
-    Serial.print(",G,");
-    Serial.print(make3.current_pt.x);
-    Serial.print(",");
-    Serial.print(make3.current_pt.y);
-    Serial.print(",");
-    Serial.print(make3.current_pt.z);
-  
+ 
     logData(make3.jA,'A');
 //    logData(make3.jB,'B');
 //    logData(make3.jC,'C');
@@ -842,6 +828,5 @@ void loop() {  //########### MAIN LOOP ############
 //    logData(make3.jCLAW,'X');
 //      logData(make3.jS,'S');
     Serial.println(", END");
-  #endif
  */
 //
