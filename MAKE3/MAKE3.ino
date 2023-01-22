@@ -24,6 +24,51 @@
 #define K_D_ABS 23     // D Absolute Angle Mode, target angle
 #define K_CLAW_LOC 14   // claw local move, angle rate, target angle
 
+// GEOMETRY OF ARM:
+#define LEN_AB 350.0     // Length of Input AB arm in mm
+#define LEN_BC 380.0     // Length of Input BC arm in mm
+#define S_TA 10.0       // offset in X of A axis from Turtable Axis
+#define S_CG_X 180.0    // offset from joint C to G in X
+#define S_CG_Y 38.0     // offset from joint C to G in Y
+#define S_CG_Z 40.0     // offset from joint C to G in Z
+
+// Command Values for picking 5 stack PowerPlay cones and placing on Mid height Junction
+#define MMPS 700 // mm per second
+#define X_PP 254 // y location for pick and place in mm
+#define Y_MV 700 // x cone pick location in mm
+#define Y_MV_NEG -400 // x cone place location in mm
+#define FLOORH -60 // z of floor for picking cone from floor
+#define MIDJUNTH 600 // z height of Mid Juction for placing
+#define CONEH 32 // DELTA cone height STACKED mm
+//#define HORIZONTAL 0 // global C angle, all moves
+//#define ALPHADPICK 0 // global D for pick
+//#define ALPHADPLACE 0 // global D for place
+#define CLAWCLOSE -50
+#define CLAWOPEN 10
+//#define LINEDANG 0
+#define LINEZ -50
+
+static int lineCmds[][SIZE_CMD_ARRAY] = {
+   {K_CLAW_LOC,200,CLAWOPEN,0,0},
+   {K_LINE_G,2000, 160,-S_CG_Z,LINEZ}, // ready
+   {K_CLAW_LOC,1000,CLAWOPEN,0,0}, // pause to pick 
+   {K_CLAW_LOC,1000,CLAWCLOSE,0,0}, // close to pick camera
+   {K_LINE_G,100, 160,-S_CG_Z,LINEZ+50}, // line over
+   {K_LINE_G,100, 700,-S_CG_Z,LINEZ+50}, // line over
+   {K_TIMER,2000,0,0,0},    // pause
+   {K_LINE_G,100, 160,-S_CG_Z,LINEZ+50} // line back
+   }; 
+                           
+static int test2cmds[][SIZE_CMD_ARRAY] ={
+   {K_CLAW_LOC,100,CLAWOPEN,0,0},  // open the claw
+   {K_LINE_G,MMPS, X_PP,Y_MV,FLOORH+CONEH*7}, // ready over cone 1
+   {K_LINE_G,MMPS, X_PP,Y_MV,FLOORH+CONEH*5}, // down to cone 1
+   {K_CLAW_LOC,500,CLAWCLOSE,0,0}, // pick cone 1
+   {K_LINE_G,MMPS, X_PP,Y_MV,FLOORH+CONEH*9}, // up with cone 1 
+   {K_LINE_G,MMPS, X_PP,Y_MV_NEG,MIDJUNTH}, // Move over Junction
+   {K_CLAW_LOC,500,CLAWOPEN,0,0}  // drop cone 1
+   }; 
+
  /*
  *  STRUCTURES FOR MATH, SERVOS, POTENTIOMETERS, JOINTS, and ARM
  */
@@ -31,7 +76,7 @@ struct point {float x,y,z;};
 
 struct line {struct point p1 , p2; };
 
-struct potentiometer 
+struct potentiometer {
   int analog_pin; // Arduino analog pin number (0 - 5)
   int low_mv; // low voltage value, from 0 (0 Volts) to 1023 (5 Volts)
   float low_ang; // corresponding angle at low voltage, in radians
@@ -65,15 +110,6 @@ struct joint {
   float target_velocity;  // radians per millisecond
 };
 
-struct command {
-  int arg[SIZE_CMD_ARRAY];
-};
-
-struct commandS {  
-  int num_cmds;
-  command cmds[];
-};
-
 struct arm {  // as in Robot Arm
   int state; // The different ways that the arm can be controlled. Set by S potentiometer
   int n; // current active index in the command array
@@ -83,6 +119,7 @@ struct arm {  // as in Robot Arm
   float feedRate; // feed rate for point moves, in mm/sec
   point current_pt; // current (C or G) point 
   point target_pt;  // target C or G point
+  float line_len;  // calculated distance from current_pt to target_pt
   joint jA;
   joint jB;
   joint jC;
@@ -90,6 +127,17 @@ struct arm {  // as in Robot Arm
   joint jCLAW;
   joint jT;
 };
+
+struct command {
+  int arg[SIZE_CMD_ARRAY];
+};
+
+arm make3; 
+joint jS;  // selector pot
+
+// called this way, it uses the default address 0x40
+Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
+
 
 // SETTERS,  INITIALIZERS
 potentiometer initPot(int pin, int lowmv, float lowang, int highmv, float highang) {
@@ -135,6 +183,7 @@ void initArm(arm & the_arm, point pt) { // starting point for C or G on arm
   the_arm.feedRate = 300.0/1000.0;  // TO BE TUNED?
   the_arm.current_pt = pt;
   the_arm.target_pt = pt;
+  the_arm.line_len = 0.0;
 }
 
 float getCang(arm the_arm, float fixed_angle) { // returns joint angle C, using A and B
@@ -334,20 +383,18 @@ boolean updateArmPtG(arm & the_arm, float to_C, float to_D) {
   // Moves current point G toward target_pt at given feed rate (mmps)
   // updates .current_pt based on speed limit
   // RETURNS true if done moving, false if not
-  static float moveDist,line_len, newC, newD;
-  static point newG;
-  
+  float moveDist;
+   
   moveDist = the_arm.feedRate * (the_arm.dt/1000.0); // feed rate (mm/sec)*sec = mm  
-  line_len = ptpt_dist(the_arm.current_pt,the_arm.target_pt);
-  if (moveDist < line_len) { // PARTIAL MOVE
-    newG = pt_on_line(moveDist,line_len, the_arm.current_pt,the_arm.target_pt);
-    the_arm.current_pt = newG;
+  the_arm.line_len = ptpt_dist(the_arm.current_pt,the_arm.target_pt);
+  if (moveDist < the_arm.line_len) { // PARTIAL MOVE
+    the_arm.current_pt = pt_on_line(moveDist,the_arm.line_len, the_arm.current_pt,the_arm.target_pt);
     Serial.print("PARTIAL MOVE PT G (mm),");
     Serial.println(moveDist,1);
-    newC = interpolate(moveDist,line_len, the_arm.jC.target_angle,to_C);
-    the_arm.jC.current_angle = newC;
-    newD = interpolate(moveDist,line_len, the_arm.jD.target_angle,to_D);
-    the_arm.jD.current_angle = newD;
+ 
+    the_arm.jC.current_angle = interpolate(moveDist,the_arm.line_len, the_arm.jC.target_angle,to_C);
+ 
+    the_arm.jD.current_angle = interpolate(moveDist,the_arm.line_len, the_arm.jD.target_angle,to_D);
     return false;
   } else { // FULL MOVE
     the_arm.current_pt = the_arm.target_pt;
@@ -360,16 +407,15 @@ boolean updateArmPtG(arm & the_arm, float to_C, float to_D) {
 void updateArmPtC(arm & the_arm) { 
   // Moves current point C toward target_pt at given feed rate (mmps)
   // updates .current_pt based on speed limit
-  float moveDist,line_len;
-  point newC;
+  float moveDist;
   
   moveDist = the_arm.feedRate/1000.0 * (the_arm.dt); // feed rate (mm/sec)*sec = mm  
-  line_len = ptpt_dist(the_arm.current_pt,the_arm.target_pt);
-  if (moveDist < line_len) { // PARTIAL MOVE
-    newC = pt_on_line(moveDist,line_len, the_arm.current_pt,the_arm.target_pt);
-    the_arm.current_pt = newC;
+  the_arm.line_len = ptpt_dist(the_arm.current_pt,the_arm.target_pt);
+  if (moveDist < the_arm.line_len) { // PARTIAL MOVE
+    the_arm.current_pt = pt_on_line(moveDist,the_arm.line_len, the_arm.current_pt,the_arm.target_pt);
     Serial.print("PARTIAL MOVE PT C (mm),");
     Serial.print(moveDist,1);
+    Serial.print(",   ");
     logPoint(the_arm);
    } else { // FULL MOVE
     the_arm.current_pt = the_arm.target_pt;
@@ -408,36 +454,18 @@ void logData(joint jt,char jt_letter) {
   Serial.println(" . ");
 } 
 
-void readCommands(arm & the_arm, commandS & the_cmds) {
-  // step through commands
-  static boolean newCmd = true;
-  if (the_arm.n >= the_cmds.num_cmds) {
-    return;  
-  } else if (newCmd) {  // command initialization
-    the_arm.timerStart = millis();  // for timed commands
-    newCmd = false;
-    Serial.print("NEW COMMAND, N,");
-    Serial.print(the_arm.n);
-    Serial.print("arg[0],");
-    Serial.println(the_cmds.cmds[the_arm.n].arg[0]);
-  } else {
-    if (runCommand(the_arm, the_cmds.cmds[the_arm.n])) {
-      the_arm.n += 1; // go to the next command line
-      newCmd = true;    
-    };   
-  }
-}
-boolean runCommand(arm & the_arm, command & the_cmd) { 
+boolean runCommand(arm & the_arm, int the_cmd[SIZE_CMD_ARRAY]) { 
   // TRUE if DONE, FALSE is NOT DONE
-  // scale is used to scale the MMPS:  REDO, MODIFY COMMAND ARRAY
-  static point toCpt; 
-  static float toabsC, toAlphaD;
-  static boolean govenorDone;
+  //Serial.print("RUN COMMAND,");
+  //Serial.println(the_cmd[0]);
 
   // read type of command
-  switch (the_cmd.arg[0]) {
+  switch (the_cmd[0]) {
+    case 0:
+      return true;
+      break;
     case K_TIMER: // DELAY (timer)
-      if ((millis()-the_arm.timerStart) > the_cmd.arg[1]) {
+      if ((millis()-the_arm.timerStart) > the_cmd[1]) {
         Serial.print("TIMER DONE, ");
         Serial.println((millis()-the_arm.timerStart));
         return true;
@@ -446,119 +474,119 @@ boolean runCommand(arm & the_arm, command & the_cmd) {
       break;
     case K_C_LOC:  // C servo
       // second argument is NEW VELO FOR C, DEG per Second
-      if (the_cmd.arg[1] < 2) the_cmd.arg[1] = 1; // NO Negatives or Zeros
-      the_arm.jC.target_velocity = the_cmd.arg[1]/RADIAN/1000.0;
-      the_arm.jC.target_angle = the_cmd.arg[2]/RADIAN;  // Third arg is NEW ANGLE FOR C
+      if (the_cmd[1] < 2) the_cmd[1] = 1; // NO Negatives or Zeros
+      the_arm.jC.target_velocity = the_cmd[1]/RADIAN/1000.0;
+      the_arm.jC.target_angle = the_cmd[2]/RADIAN;  // Third arg is NEW ANGLE FOR C
       the_arm.jC.global = false;
       logData(the_arm.jC,'C');
       return true;
       break;
     case K_D_LOC:  // D servo
       // second argument is NEW VELO FOR D, DEG per Second
-      if (the_cmd.arg[1] < 2) the_cmd.arg[1] = 1; // NO Negatives or Zeros
-      the_arm.jD.target_velocity = the_cmd.arg[1]/RADIAN/1000.0;
-      the_arm.jD.target_angle = the_cmd.arg[2]/RADIAN;  // Third arg is NEW ANGLE FOR D
+      if (the_cmd[1] < 2) the_cmd[1] = 1; // NO Negatives or Zeros
+      the_arm.jD.target_velocity = the_cmd[1]/RADIAN/1000.0;
+      the_arm.jD.target_angle = the_cmd[2]/RADIAN;  // Third arg is NEW ANGLE FOR D
       the_arm.jD.global = false;
       logData(the_arm.jD,'D');
       return true;
       break;
     case K_CLAW_LOC:  // CLAW servo
       // second argument is NEW VELO FOR C, DEG per Second
-      if (the_cmd.arg[1] < 2) the_cmd.arg[1] = 1; // NO Negatives or Zeros
-      the_arm.jCLAW.target_velocity = the_cmd.arg[1]/RADIAN/1000.0;
-      the_arm.jCLAW.target_angle = the_cmd.arg[2]/RADIAN;  // Third arg is NEW ANGLE FOR Claw
+      if (the_cmd[1] < 2) the_cmd[1] = 1; // NO Negatives or Zeros
+      the_arm.jCLAW.target_velocity = the_cmd[1]/RADIAN/1000.0;
+      the_arm.jCLAW.target_angle = the_cmd[2]/RADIAN;  // Third arg is NEW ANGLE FOR Claw
       the_arm.jCLAW.global = false;
       logData(the_arm.jCLAW,'X');
       return true;
       break;
-       /*
-    case K_LINE_G: // line move
-      if (the_arm.moveDist == 0.0) { // initialize line
-          toCpt.x = the_cmds.cmds[the_arm.n].arg[2];
-          toCpt.y = the_cmds.cmds[the_arm.n].arg[3];
-          toCpt.z = the_cmds.cmds[the_arm.n].arg[4];
-          toabsC = the_cmds.cmds[the_arm.n].arg[5]/RADIAN;
-          toAlphaD = the_cmds.cmds[the_arm.n].arg[6]/RADIAN;
-          govenorDone = lineMoveG(the_arm, toCpt, the_cmds.cmds[the_arm.n].arg[1]*scale,toabsC,toAlphaD); 
-  
-       } else {  // moving
-          govenorDone = lineMoveG(the_arm, toCpt, the_cmds.cmds[the_arm.n].arg[1]*scale,toabsC,toAlphaD); 
-          if (govenorDone) {  
-            go_to_next_cmd(the_arm, the_cmds);
-          }
-       }
-       break;
-     case K_CLAW_LOC: // Claw move, with timer to give claw time to move.
-      * 
-       the_arm.jCLAW.target_angle = the_cmds.cmds[the_arm.n][2]/RADIAN;  // set the claw angle
-       if ((millis()-the_arm.timerStart) > the_cmds.cmds[the_arm.n][1]) {
-          go_to_next_cmd(the_arm, the_cmds);        
-        }
-       break;
-       */
+    case K_LINE_C: // line move to C point
+    case K_LINE_G: // line move to G point (TO BE COMPLETED-SAME A C FOR NOW)
+      the_arm.feedRate = the_cmd[1];
+      the_arm.target_pt.x = the_cmd[2];
+      the_arm.target_pt.y = the_cmd[3];
+      the_arm.target_pt.z = the_cmd[4];
+      the_arm.line_len = ptpt_dist(the_arm.current_pt,the_arm.target_pt); // also calculated in loop update arm... shouldn't do it twice
+      
+      if (the_arm.line_len < 0.5) {  // Distance from current to target is small
+        Serial.println("LINE MOVE DONE, ");
+        return true;
+      } else { // return false to keep the next command from running
+        //Serial.println("LINE MOVE ");
+        return false;
+      }
+      break;
   } // end switch   
 }
 
-// <<<<<<<<<<<<<<<<<<<<<<<<END MOTION CONTROL CODE HERE
+void readCommands(arm & the_arm, int the_cmds[][SIZE_CMD_ARRAY],int n, char *string) {
+  // step through commands
+  int cmdArray[SIZE_CMD_ARRAY];
+  //static boolean newCmd = true;
+  if (the_arm.n > n) {  // DONE RUNNING ARRAY OF COMMANDS
+    return;  
+  } else {
+    // CONVERT THE 2D ARRAY TO 1D ARRAY
+    for (int i=0;i<SIZE_CMD_ARRAY;i++) {
+      cmdArray[i]=the_cmds[the_arm.n][i];//if (newCmd) {  // command initialization
+    }
+    if (runCommand(the_arm, cmdArray)) { // true = go to the next command
+      Serial.print("JUST RAN ");
+      Serial.print(string);
+      Serial.println(the_arm.n);
+      the_arm.n += 1; // go to the next command line
+      the_arm.timerStart = millis();  // for timed commands
+      //newCmd = true;    
+    } else { // false = keep looping on the current command
+      //newCmd = false;
+      };
+  };
+}
 
-// BEGIN GLOBAL CODE
+void logCmds(int the_cmds[][SIZE_CMD_ARRAY], int n, char *string) {
+  Serial.println("logCmds");
+  int i;
+  for (int i=0;i<n;i++) {
+    Serial.print(string);
+    Serial.print(i); 
+    for (int j=0;j<SIZE_CMD_ARRAY;j++) {
+      Serial.print(",");
+      Serial.print(the_cmds[i][j]); 
+    }
+    Serial.println("."); 
+  }
+}
 
-// GEOMETRY OF ARM:
-#define LEN_AB 350.0     // Length of Input AB arm in mm
-#define LEN_BC 380.0     // Length of Input BC arm in mm
-#define S_TA 10.0       // offset in X of A axis from Turtable Axis
-#define S_CG_X 180.0    // offset from joint C to G in X
-#define S_CG_Y 38.0     // offset from joint C to G in Y
-#define S_CG_Z 40.0     // offset from joint C to G in Z
+void getCmdSerial(command & cmd) { // read command from serial port
+  // If cmd[0] = 0 then command has NOT been read
+  int i;
+  
+  cmd.arg[0] = 0;
+  
+  if (Serial.available() > 0){
 
-struct arm make3; 
-joint jS;  // selector pot
+    for (i=1;i<SIZE_CMD_ARRAY;i++) 
+      cmd.arg[i] = 0;  // initialize
 
-// called this way, it uses the default address 0x40
-Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
-
-// Command Values for picking 5 stack PowerPlay cones and placing on Mid height Junction
-#define MMPS 700 // mm per second
-#define X_PP 254 // y location for pick and place in mm
-#define Y_MV 700 // x cone pick location in mm
-#define Y_MV_NEG -400 // x cone place location in mm
-#define FLOORH -60 // z of floor for picking cone from floor
-#define MIDJUNTH 600 // z height of Mid Juction for placing
-#define CONEH 32 // DELTA cone height STACKED mm
-//#define HORIZONTAL 0 // global C angle, all moves
-//#define ALPHADPICK 0 // global D for pick
-//#define ALPHADPLACE 0 // global D for place
-#define CLAWCLOSE -50
-#define CLAWOPEN 30
-//#define LINEDANG 0
-#define LINEZ -50
-
-static commandS lineCmds = 
-  {8,  // size of the array.  It gets set correct on startup
-   {{K_CLAW_LOC,200,CLAWOPEN,0,0},
-   {K_LINE_G,2000, 160,-S_CG_Z,LINEZ}, // ready
-   {K_CLAW_LOC,1000,CLAWOPEN,0,0}, // pause to pick 
-   {K_CLAW_LOC,1000,CLAWCLOSE,0,0}, // close to pick camera
-   {K_LINE_G,100, 160,-S_CG_Z,LINEZ+50}, // line over
-   {K_LINE_G,100, 700,-S_CG_Z,LINEZ+50}, // line over
-   {K_TIMER,1000,0,0,0},    // pause
-   {K_LINE_G,100, 160,-S_CG_Z,LINEZ+50}}}; // line back
-                           
-static commandS test2cmds =
-   {7,
-   {{K_CLAW_LOC,100,CLAWOPEN,0,0},  // open the claw
-   {K_LINE_G,MMPS, X_PP,Y_MV,FLOORH+CONEH*7}, // ready over cone 1
-   {K_LINE_G,MMPS, X_PP,Y_MV,FLOORH+CONEH*5}, // down to cone 1
-   {K_CLAW_LOC,500,CLAWCLOSE,0,0}, // pick cone 1
-   {K_LINE_G,MMPS, X_PP,Y_MV,FLOORH+CONEH*9}, // up with cone 1 
-   {K_LINE_G,MMPS, X_PP,Y_MV_NEG,MIDJUNTH}, // Move over Junction
-   {K_CLAW_LOC,500,CLAWOPEN,0,0}}}; // drop cone 1
+    i=0;
+    while (Serial.available() > 0) {
+      cmd.arg[i] = Serial.parseInt(); // get available ints
+      i++;
+    }    
+    // print the command
+    Serial.print("Command: ");
+    for (i=0;i<SIZE_CMD_ARRAY;i++) {
+      Serial.print(cmd.arg[i]);
+      Serial.print(",");
+    }
+    Serial.println("END");
+  }
+  //return(cmd); 
+}
 
 void setup() {  // setup code here, to run once:
 
   Serial.begin(115200); // baud rate
-  delay(1500);  // serial output needs a delay
-
+  delay(2500);  // serial output needs a delay
 
   pwm.begin();
   /*  Adafruit sevo library
@@ -611,9 +639,8 @@ void setup() {  // setup code here, to run once:
   make3.state = 1; 
 
   // INITIALIZE COMMAND ARRAYS ... NOT WORKING
-  Serial.print("ARRAY SIZE ");
-  Serial.println(sizeof(test2cmds.cmds[0]),1); 
-  //lineCmds.num_cmds = sizeof(lineCmds)/(SIZE_CMD_ARRAY*2); 
+  logCmds(lineCmds, sizeof(lineCmds)/(SIZE_CMD_ARRAY*2), "lineCmds "); 
+  logCmds(test2cmds, sizeof(test2cmds)/(SIZE_CMD_ARRAY*2), "test2cmds ");
 }
 
 void stateLoop(arm & the_arm) {
@@ -691,62 +718,38 @@ void loopUpdateArm (arm & the_arm) {
   updateJointBySpeed(the_arm.jCLAW, the_arm.dt);  // update Claw joint
 }
 
-command getCmdSerial() { // read command from serial port
-  // If cmd.arg[0] = 0 then command has NOT been read
-  command cmd;
-  int i;
-
-  cmd.arg[0] = 0;
-  
-  if (Serial.available() > 0){
-
-    for (i=1;i<SIZE_CMD_ARRAY;i++) 
-      cmd.arg[i] = 0;  // initialize
-
-    i=0;
-    while (Serial.available() > 0) {
-      cmd.arg[i] = Serial.parseInt(); // get available ints
-      i++;
-    }    
-    // print the command
-    Serial.print("Command: ");
-    for (i=0;i<SIZE_CMD_ARRAY;i++) {
-      Serial.print(cmd.arg[i]);
-      Serial.print(",");
-    }
-    Serial.println("END");
-  }
-  return(cmd); 
-}
 
 void loop() {  //########### MAIN LOOP ############
   static float mmps_scale;
   command cmd;  // used in Serial Read
+  int cmdArray[SIZE_CMD_ARRAY];
 
   stateLoop(make3);  // checks for state change
   
   switch (make3.state) {
     case 0: 
-    case 1: 
+    case 1: break;
     case 2: // COMMAND CONTROL -- LINE
-      
+      /*
       if (make3.state == 0) mmps_scale = 2.0;
       if (make3.state == 1) mmps_scale = 0.5;
       if (make3.state == 2) mmps_scale = 1.0;
-      
-      // FIX runCommand(make3,    lineCmds    ,mmps_scale); // get and calculate the moves
+      */
+      readCommands(make3,    lineCmds   , sizeof(lineCmds)/(SIZE_CMD_ARRAY*2),"lineCmds,"); // get and calculate the moves
       break;
     case 3: // Serial Read
-      cmd = getCmdSerial();  // returns zeros if no command
+      getCmdSerial(cmd);  // returns zeros if no command
       if (cmd.arg[0] != 0) make3.timerStart=millis();  // start timer if there is a command
-      while (!runCommand(make3, cmd)) {
+      for (int i = 0; i < SIZE_CMD_ARRAY;i++) {
+        cmdArray[i]=cmd.arg[i];
+      }
+      //runCommand(make3, cmdArray);
+      while (!runCommand(make3, cmdArray)) {
         //Serial.println("NOT TRUE");  // for timer (HALTS LOOP!)
       }
       break;
-    case 4: // COMMAND CONTROL -- C = -90  WITH xxx
-      mmps_scale = 1.0;
-      // FIX runCommand(make3,    test2cmds   ,mmps_scale); // get and calculate the moves
-      //pointC =  clawToC(make3.current_pt, make3.jC.current_angle, make3.jD.current_angle, S_CG_X, S_CG_Y,S_CG_Z);
+    case 4: // COMMAND CONTROL -- C = -90 
+      readCommands(make3,    test2cmds   , sizeof(test2cmds)/(SIZE_CMD_ARRAY*2),"test2cmds,"); // get and calculate the moves
       break;
     case 5: break;
     case 6:  
@@ -787,12 +790,13 @@ void loop() {  //########### MAIN LOOP ############
   }
 
   // PRE UPDATE HARD LIMITS...  THIS SHOULD USE POINT G.Z
+  /*
   if (make3.current_pt.z < 100.0) {  // this keeps the arm from doing a pushup and frying a servo
     Serial.print("FLOOR (mm),");
     Serial.println(make3.current_pt.z,1);
     make3.current_pt.z = 100.0;
   }
-
+*/
   loopUpdateArm(make3);  // ARM UPDATE (MOVES CURRENT TOWARD TARGETS)
   
   // HARD LIMITS
@@ -808,25 +812,3 @@ void loop() {  //########### MAIN LOOP ############
   pwm.writeMicroseconds(make3.jCLAW.svo.digital_pin, servo_map(make3.jCLAW)); // Adafruit servo library
   pwm.writeMicroseconds(make3.jT.svo.digital_pin, servo_map(make3.jT)); // Adafruit servo library
 } // END OF MAIN LOOP
-
-/*  
- *   NOT SURE WHERE
-    Serial.print("ms,");
-    Serial.print(make3.prior_mst);
-    //Serial.print(",cmd_size,");
-    //Serial.print(make3.cmd_size);
-    Serial.print(", N,"); // command line
-    Serial.print(make3.n);
-    //Serial.print(", CMD,");
-    //Serial.print(cmd_array[make3.n][0]); 
- 
-    logData(make3.jA,'A');
-//    logData(make3.jB,'B');
-//    logData(make3.jC,'C');
-//    logData(make3.jD,'D');
-//    logData(make3.jT,'T');
-//    logData(make3.jCLAW,'X');
-//      logData(make3.jS,'S');
-    Serial.println(", END");
- */
-//
