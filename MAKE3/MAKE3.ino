@@ -55,10 +55,10 @@
 // GEOMETRY OF ARM:
 #define LEN_AB 350.0     // Length of Input AB arm in mm
 #define LEN_BC 380.0     // Length of Input BC arm in mm
-#define FLOOR -152.0     // Distance from A joint to Floor in mm
-#define S_CG_X 180.0    // offset from joint C to G in X
+#define FLOOR -50.0     // Distance from A joint to Floor in mm (-150 mm without camera, -50 with camera)
+//#define S_CG_X 180.0    // offset from joint C to G in X.  180 is a claw value
 #define S_CG_Y 38.0     // offset from joint C to G in Y
-#define S_CG_Z 40.0     // offset from joint C to G in Z
+//#define S_CG_Z 90.0     // offset from joint C to G in Z.  40 is Claw.  90 is GoPro
 
 // Command Values for picking 5 stack PowerPlay cones and placing on Mid height Junction
 #define MMPS 600 // mm per second
@@ -605,19 +605,19 @@ boolean runCommand(arm & the_arm, command  & the_cmd) {
         center.x = the_arm.target_pt.x;
         if (the_cmd.arg[2] == 1) angle_sign = -1; // reverse direction if requested
         else angle_sign = 1;
-
+        rad = rad*angle_sign;        
         current_angle = 0.0; 
         the_arm.target_pt.x = center.x;
         the_arm.target_pt.y = center.y + rad;
         circleInitialize = false;  // don't execute setup again
       }
       dist = ptpt_dist(the_arm.current_pt,the_arm.target_pt);
-      if (abs(current_angle) > 2.0*PI+angle_inc) {
+      if (abs(current_angle) > PI) {  // do half circle
         circleInitialize = true;
         current_angle = 0.0; 
         return true;  // done with command
-      } else if (dist < 0.2) {  // move to next segment of circle
-        the_arm.target_pt.x = center.x + rad*sin(current_angle);
+      } else if (dist < 0.1) {  // move to next segment of circle
+        the_arm.target_pt.x = center.x - rad*sin(current_angle);
         if (the_arm.target_pt.x < 10.0) the_arm.target_pt.x = 10.0; // Clip -x! keep the turntable from fast reversing
         the_arm.target_pt.y = center.y + rad*cos(current_angle);
         current_angle = current_angle + angle_inc*angle_sign; 
@@ -741,7 +741,7 @@ void setup() {  // setup code here, to run once:
   make3.jC.svo = initServo(2, -90.0/RADIAN, 927, 0.0/RADIAN, 1410); // set 3/7/2023
   make3.jD.svo = initServo(3,  -90.0/RADIAN,  811, 90.0/RADIAN, 2054); // good.  Can travel from -135 to 135 deg
   make3.jCLAW.svo = initServo(4, -50.0/RADIAN,  900, 50.0/RADIAN, 1900); // 45 DEG = FULL OPEN, -45 = FULL CLOSE
-  make3.jT.svo = initServo(5,  -45.0/RADIAN,  2038, 45.0/RADIAN, 610); // set 3/7/2023
+  make3.jT.svo = initServo(5,  -58.0/RADIAN,  2320, 60.0/RADIAN, 480); // set 3/16/2023.  Servo range is about -60 to 60 deg.
 
   // INITIALIZE ANGLES FOR ARM
   initJoint(make3.jA, 130.0/RADIAN);  
@@ -762,6 +762,7 @@ void stateLoop(arm & the_arm) {
   // called at the begining of loop()
   // checks for a change in state and runs the setup for that state  
   static int old_state = -1;  // should force initialize first pass
+  int new_x, new_z;  
   // jS (joint Selector) is a global variable
   
   jS.pot_value = analogRead(jS.pot.analog_pin);  // read the selector
@@ -785,16 +786,22 @@ void stateLoop(arm & the_arm) {
         break;
       case S_AUTO_LINE_Y:
         the_arm.n = 0; // reset command pointer
-        the_arm.mode = M_CD_AIM;  // should be overriden by command
-        the_arm.aim_pt.x = the_arm.current_pt.x + 300.0;
+        the_arm.mode = M_CD_AIM;  // Aim at point that is on y=0 plane
+        new_x = make3.target_pt.x;
+        if (new_x < 150) new_x = 150;  // can't be too close
+        if (new_x > 400) new_x = 400;  // can't be too far
+        new_z = make3.target_pt.z;
+        if (new_z < FLOOR)  new_z = FLOOR;
+        if (new_z > 500)  new_z = 500;
+        the_arm.aim_pt.x = new_x + 300.0;
         the_arm.aim_pt.y = 0.0;
-        the_arm.aim_pt.z = the_arm.current_pt.z;
-        setCmd(sixCmds.cmd[0],K_D_ABS,300,make3.jD.target_angle*RADIAN,0,0);
-        setCmd(sixCmds.cmd[1],K_LINE_C,100,make3.target_pt.x,LEN_AB+100,make3.target_pt.z);
-        setCmd(sixCmds.cmd[2],K_AIM,make3.target_pt.x+300,0,make3.target_pt.z,0);
-        setCmd(sixCmds.cmd[3],K_LINE_C,100,make3.target_pt.x,-LEN_AB+100,make3.target_pt.z);
-        setCmd(sixCmds.cmd[4],K_TIMER,1000,0,0,0);
-        setCmd(sixCmds.cmd[5],K_LINE_C,100,make3.target_pt.x,LEN_AB+100,make3.target_pt.z);
+        the_arm.aim_pt.z = new_z;
+        setCmd(sixCmds.cmd[0],K_LINE_C,60,new_x,LEN_AB+100,new_z);
+        setCmd(sixCmds.cmd[1],K_LINE_C,100,new_x,0,new_z);  // stop in the middle for alignment
+        setCmd(sixCmds.cmd[2],K_TIMER,1000,0,0,0);
+        setCmd(sixCmds.cmd[3],K_LINE_C,100,new_x,-LEN_AB+100,new_z);
+        setCmd(sixCmds.cmd[4],K_TIMER,500,0,0,0);
+        setCmd(sixCmds.cmd[5],K_LINE_C,100,new_x,LEN_AB+100,new_z);
         break;
       case S_AUTO_LINE_Z:
         the_arm.n = 0; // reset command pointer
@@ -808,13 +815,22 @@ void stateLoop(arm & the_arm) {
         break;
       case S_AUTO_CIRCLE_Z:
         the_arm.n = 0; // reset command pointer
-        the_arm.mode = M_C_ABS_D_LOC;
-        setCmd(sixCmds.cmd[0],K_LINE_C,50,LEN_AB,200,make3.target_pt.z);
+        the_arm.mode = M_CD_AIM;  // Aim at center of circle
+        new_x = make3.target_pt.x;
+        if (new_x < 300) new_x = 300;  // can't be too close
+        if (new_x > 500) new_x = 500;  // can't be too far
+        new_z = make3.target_pt.z;
+        //if (new_z < FLOOR)  new_z = FLOOR;
+        if (new_z > 500)  new_z = 500;
+        the_arm.aim_pt.x = new_x+20;  // small offset to keep from flipping C joint
+        the_arm.aim_pt.y = 0.0;
+        the_arm.aim_pt.z = new_z;
+        setCmd(sixCmds.cmd[0],K_LINE_C,80,new_x,200,new_z);
         setCmd(sixCmds.cmd[1],K_CIRCLE_Z,80,0,0,0);
-        setCmd(sixCmds.cmd[2],K_D_ABS,300,45,0,0); // point D to the right
-        setCmd(sixCmds.cmd[3],K_CIRCLE_Z,100,0,0,0); 
-        setCmd(sixCmds.cmd[4],K_D_ABS,300,0,0,0);  // point D forward
-        setCmd(sixCmds.cmd[5],K_CIRCLE_Z,100,0,0,0);
+        setCmd(sixCmds.cmd[2],K_TIMER,500,0,0,0);
+        setCmd(sixCmds.cmd[3],K_LINE_C,80,new_x,-200,new_z);
+        setCmd(sixCmds.cmd[4],K_CIRCLE_Z,80,1,0,0);
+        setCmd(sixCmds.cmd[5],K_TIMER,500,0,0,0);
         break;
         
       case S_AUTO_CONES:
@@ -914,7 +930,7 @@ void loopUpdateArm (arm & the_arm) {
     break;
     case M_CD_AIM: // computes C and D from current and aim points and uses angles as absolute 
       the_arm.jC.target_angle = atan2(the_arm.aim_pt.z-the_arm.current_pt.z,the_arm.aim_pt.x-the_arm.current_pt.x) - 90.0/RADIAN;
-      the_arm.jD.target_angle = atan2(the_arm.aim_pt.y-the_arm.current_pt.y,the_arm.aim_pt.x-the_arm.current_pt.x);
+      the_arm.jD.target_angle = atan2(the_arm.aim_pt.y-the_arm.current_pt.y-S_CG_Y,the_arm.aim_pt.x-the_arm.current_pt.x);
       the_arm.jC.current_angle = getCang(the_arm,the_arm.jC.target_angle);
       the_arm.jD.current_angle = -the_arm.jT.current_angle + the_arm.jD.target_angle;     
     break;
@@ -1002,8 +1018,8 @@ void loop() {  //########### MAIN LOOP ############
 
   loopUpdateArm(make3);  // ARM UPDATE (MOVES CURRENT TOWARD TARGETS)
 
-  //logData(make3.jA,'A');
-  //logPoint(make3);
+  //logData(make3.jT,'T');
+  logPoint(make3);
 
   // Convert CURRENT angle to PWM signal and send 
   pwm.writeMicroseconds(make3.jA.svo.digital_pin, servo_map(make3.jA)); // Adafruit servo library
