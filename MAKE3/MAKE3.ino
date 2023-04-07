@@ -1,15 +1,13 @@
 /* ROBOT ARM CONTROL SOFTWARE FOR MAKE3 ROBOT ARM
- *  By, SrAmo, March 2023
+ *  By, SrAmo, April 2023
  */
-#include <Wire.h>
+//#include <Wire.h>  // does not seem to be needed 
 #include <Adafruit_PWMServoDriver.h>
 
 #define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates, from Adafruit
 #define RADIAN 57.2957795  // number of degrees in one radian
-#define ANGLE_INC 0.0785398  // radians per secmect in ARCs, how much to turn (40 secments per half circle)
 #define RAMP_START_DIST 50 // distance at which velocity ramp-down begins (mm) used in velocity control
 #define ZERO_DIST 0.5     // value used to determine if distance is zero (mm)
-#define SIZE_CMD_ARRAY 5  // NUMBER OF VALUES PER COMMAND. Command array is 2 dimensional. This is number of commands per row.
 
 // STATES (or programs)  Controlled by the selector potentiometer.
 #define S_SERIAL 0      // enter a serial command from serial.input
@@ -19,11 +17,11 @@
 #define S_TELEOP_4 4    // C at -90 absolute, D relative (controlled)
 #define S_AUTO_LINE_X 5 // Back and forth in X direction, with Aim point at y=?, x=mid
 #define S_TELEOP_6 6    // C at -90 absolute, D relative (controlled)
-#define S_AUTO_ARC_XY 7  // Arc in Y direction, with Aim point at +x, y=0
+#define S_AUTO_ARC_XY 7  // Arc in Y direction, with Aim point in middle of arc
 #define S_TELEOP_8 8    // C at -90 absolute, D relative (controlled)
 #define S_TELEOP_9 9    // C at 45 absolute
 #define S_TELEOP_10 10  // C at 0 absolute
-
+// UNUSED STATES
 #define S_AUTO_LINE_Z 13 // C at 90 abs, D loc from last
 #define S_AUTO_CONES 17  // WAS 7
 
@@ -39,13 +37,13 @@
  *  COMMAND CODES: All codes are integers
  *  Feed rate is in mm per second.
  *  Angle rate is in Degrees per second.
- *  Angles given in Degrees.  Location in mm.
+ *  Angles given in Degrees.  Locations in mm.
  */
 // Synchronous commands (completes command before next command is sent)
 #define K_TIMER 1    // timer {millisconds}
 #define K_LINE_C 2   // line move to new C point   {feed rate, x,y,z}
 //#define K_LINE_G 3   // line move to new G point {feed rate, x,y,z}
-#define K_ARC_Z 4  // moves in a circle in the Z plane, from current pt (x,y,z) around (x,0,z), radius = abs(y) {feed rate, CW-0 or CCW-1}
+#define K_ARC_Z 4  // moves in a arc on a Z plane, from current pt (x,y,z) around (x,0,z), radius = abs(y) {feed rate, CW-0 or CCW-1}
 // Asynchronous commands (does not wait to be completed)
 #define K_C_LOC 12    // C local move           {angle rate, target angle}
 #define K_C_ABS 22    // C Absolute Angle Mode, {angle rate, target angle}
@@ -53,15 +51,15 @@
 #define K_D_ABS 23     // D Absolute Angle Mode {angle rate, target angle}
 #define K_CLAW 14   // claw local move      {angle rate, target angle}
 #define K_AIM 5     // Use AIM mode for given point {x,y,z}
-#define K_GOTO 9    // **NEW** jumps back to given command line {command line number} 
+#define K_GOTO 9    // Go back to given command line {command line number} 
 
 // GEOMETRY OF ARM:
 #define LEN_AB 350.0     // Length of Input AB arm in mm
 #define LEN_BC 380.0     // Length of Input BC arm in mm
 #define FLOOR 0.0     // Distance from A joint to Floor in mm (-150 mm without camera, -50 with camera)
-//#define S_CG_X 180.0    // offset from joint C to G in X.  180 is a claw value
-#define S_CG_Y 38.0     // offset from joint C to G in Y
-//#define S_CG_Z 90.0     // offset from joint C to G in Z.  40 is Claw.  90 is GoPro
+#define S_CG_X 90.0    // offset from joint C to G in X.  180 is a claw value,  90 is GoPro
+#define S_CG_Y -38.0     // offset from joint C to G in Y.  -38 is GoPro
+#define S_CG_Z 0.0     // offset from joint C to G in Z.  40 is Claw.  0 is GoPro
 
 // Command Values for picking 5 stack PowerPlay cones and placing on Mid height Junction
 #define MMPS 600 // mm per second
@@ -96,7 +94,6 @@ struct servo {
   // Values are pulse width in microseconds (~400 to ~2400--SERVOS SHOULD BE TESTED)
   // 270 deg servo, gets 290 deg motion with 400 to 2500 microsecond range
   // 180 deg servo, gets 160 deg motion with 500 to 2800 microsecond range
-  // 180 deg SAVOX, gets 170 deg motion with 500 to 2800 microsecond range
   uint8_t digital_pin; // Adafruit digital pin number
   int low_ms; // low microsecond value, from about 500 to 2400
   float low_ang; // corresponding angle at low microsecond, in radians
@@ -108,7 +105,6 @@ struct joint {
   potentiometer pot; // Sub structure which contains static pot information
   servo svo; // Sub structure which contains the static servo information
   int pot_value;  // current potentiometer value in millivolts
-  //boolean global;  // used for special cases where joint moves based on formula
   float pot_angle; // Potentiometer arm angle, if used, in radians
   float current_angle; // last issued command for angl, in radians
   float target_angle;  // where the angle should end up, in radians
@@ -136,18 +132,31 @@ struct arm {  // as in Robot Arm
   joint jT;
 };
 
+#define SIZE_CMD_ARRAY 5  // NUMBER OF VALUES PER COMMAND. Command array is 2 dimensional. This is number of commands per row.
 struct command {
   int arg[SIZE_CMD_ARRAY];
 };
 
-struct sequence {
+struct sequence {  // An array of commands
   int num_cmds;
   command cmd[];  // undefined array length
+};
+
+// Path of Servo Angles.  Stored as integer to minimize memory usage.  Scale by at least 1000 for smooth results
+#define PATH_SIZE 20
+#define ANGLE_SCALE 1000   // used to store radians in integer format (radian*SCALE)
+struct pathAngles {
+  int a[PATH_SIZE];
+  int b[PATH_SIZE];
+  int c[PATH_SIZE];
+  int d[PATH_SIZE];
+  int t[PATH_SIZE];        
 };
 
 //   GOBAL VARIABLES 
 arm make3; 
 joint jS;  // selector pot
+pathAngles pathA; // for storing pre-computed servo angles
 
 sequence sixCmds = {6,{
    {K_TIMER,1000,0,0,0},    // pause
@@ -158,16 +167,6 @@ sequence sixCmds = {6,{
    {K_LINE_C,100, 160,150,150}, // point 1
    }}; 
                            
-/*sequence coneCmds ={7,{
-   {K_CLAW,100,CLAWOPEN,0,0},  // open the claw
-   {K_LINE_C,MMPS, X_PP,Y_MV,FLOORH+CONEH*7}, // ready over cone 1
-   {K_LINE_C,MMPS, X_PP,Y_MV,FLOORH+CONEH*5}, // down to cone 1
-   {K_CLAW,500,CLAWCLOSE,0,0}, // pick cone 1
-   {K_LINE_C,MMPS, X_PP,Y_MV,FLOORH+CONEH*9}, // up with cone 1 
-   {K_LINE_C,MMPS, X_PP,Y_MV_NEG,MIDJUNTH}, // Move over Junction
-   {K_CLAW,500,CLAWOPEN,0,0}  // drop cone 1
-}};  */
-
 // called this way, it uses the default address 0x40
 Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver();
 
@@ -198,22 +197,21 @@ servo initServo(int pin, float lowang, int lowms, float highang, int highms) {
 
 void initJoint(joint & jt, float initial_angle) {
   // Sets initial joint values
-  // Note: can't read physical servo angle, so can jump on startup
-  //jt.global = false;
+  // Note: can't read physical servo angle, so servos can jump on startup
   jt.current_angle = initial_angle;
   jt.target_angle = initial_angle;
   jt.target_velocity = 60.0/RADIAN/1000.0;  // default initial velocity, radians per microsecond
 }
 
-void initArm(arm & the_arm, point pt) { // starting point for C or G on arm
+void initArm(arm & the_arm, point pt) { // starting point for arm
   // initialize arm structure
   the_arm.state = 0;
   the_arm.mode = M_CD_ABS;  
   the_arm.n = -1;  // first command, USE -1 TO INDICATE NOT RUNNING A COMMAND
   the_arm.prior_mst = millis();
-  the_arm.dt = 10;  //  TO BE TUNED?
+  the_arm.dt = 10;  
   the_arm.timerStart = millis();
-  the_arm.feedRate = 300.0;  // TO BE TUNED?
+  the_arm.feedRate = 300.0;  
   the_arm.rampDown = true; 
   the_arm.current_pt = pt;
   the_arm.target_pt = pt;
@@ -222,9 +220,9 @@ void initArm(arm & the_arm, point pt) { // starting point for C or G on arm
   the_arm.line_len = 0.0;
 }
 
-float getCang(arm the_arm, float fixed_angle) { // returns joint angle C, using A and B
+float getCang(float a_angle, float b_angle, float fixed_c_angle) { // returns joint angle C, using A and B
   // Assumes that you want an absolute (fixed) C angle
-  return -the_arm.jA.current_angle - the_arm.jB.current_angle + fixed_angle;
+  return -a_angle - b_angle + fixed_c_angle;
 }
 
 //  ###############  MATH FUNCTIONS ###########################
@@ -233,7 +231,7 @@ float floatMap(float x, float in_min, float in_max, float out_min, float out_max
 }
 
 point rot_pt_x(point p1, float a) { // Rotate p1 about X axis by a radians
-  static point p2;
+  point p2;
   p2.x = p1.x;
   p2.y = p1.y*cos(a)-p1.z*sin(a);
   p2.z = p1.y*sin(a)+p1.z*cos(a);
@@ -241,7 +239,7 @@ point rot_pt_x(point p1, float a) { // Rotate p1 about X axis by a radians
 }
 
 point rot_pt_y(point p1, float a) { // Rotate p1 about Y axis by a radians
-  static point p2;
+  point p2;
   p2.x = p1.x*cos(a)-p1.z*sin(a);
   p2.y = p1.y;
   p2.z = p1.x*sin(a)+p1.z*cos(a);
@@ -257,19 +255,19 @@ point rot_pt_z(point p1, float a) { // Rotate p1 about Z axis by a radians
 }
 
 point add_pts(point p1, point p2) {
-  static point p3;
+  point p3;
   p3.x = p1.x+p2.x;   p3.y = p1.y+p2.y;   p3.z = p1.z+p2.z;
   return p3;
 }
 float ptpt_dist(point p1, point p2) {
-  static float dist;
+  float dist;
   dist = sqrt(pow(p1.x-p2.x,2.0)+pow(p1.y-p2.y,2.0)+pow(p1.z-p2.z,2.0) ); 
   return dist;
 }
 
 point pt_on_line(float s, float dist, point p1, point p2) { // point along line s from p1
-  static point new_pt;
-  static float ratio;
+  point new_pt;
+  float ratio;
   ratio = s / dist; 
   new_pt.x = ratio*(p2.x-p1.x) + p1.x;
   new_pt.y = ratio*(p2.y-p1.y) + p1.y;
@@ -278,29 +276,13 @@ point pt_on_line(float s, float dist, point p1, point p2) { // point along line 
 }
 
 float interpolate(float s, float dist, float p1, float p2) { // dist along s from p1
-  static float new_pt;
-  static float ratio;
+  float new_pt;
+  float ratio;
   ratio = s / dist; 
   new_pt = ratio*(p2-p1) + p1;
   return new_pt;
 }
 
-float vec_mag(point p) {
-  return sqrt(pow((p.x),2)+pow(p.y,2)+pow(p.z,2));
-}
-/*
-float dot_prod (point p1, point p2) {
-  return p1.x*p2.x + p1.y*p2.y + p1.z*p2.z;
-}
-
-point cross_prod (point p1, point p2) {
-  static point cross_p;
-  cross_p.x = p1.y*p2.z - p1.z*p2.y;
-  cross_p.y = p1.z*p2.x - p1.x*p2.z;
-  cross_p.z = p1.x*p2.y - p1.y*p2.x;
-  return cross_p;
-}
-*/
 float * inverse_arm_kinematics(point c, float l_ab, float l_bc) {
   // Given arm system GroundT-TA-AB-BC, where T (turntable) and A are [0,0,0]
   // The location of joint C (point c) and the lengths AB (l_ab) and BC (l_bc) are specified
@@ -309,18 +291,12 @@ float * inverse_arm_kinematics(point c, float l_ab, float l_bc) {
   // Calculate the angles given pt C ***Inverse Kinematics***
   // returns an array with [A_angle,B_angle,T_angle] in radians
   
-  float xy_len, c_len, sub_angle1, sub_angle2;
-  static float angles[3] = {0.0,0.0,0.0};  // [ A , B , T ]
-  static point c_new;
-  //static point z_vec = {0.0,0.0,1.0};
-  //float dot;
-  static float tAngMemory = 0.0;
+  float c_len, sub_angle1, sub_angle2;
+  float angles[3] = {0.0,0.0,0.0};  // [ A , B , T ]
+  point c_new;
+  static float tAngMemory = 0.0;  // THIS NEEDS TO BE STATIC
 
   c_len = sqrt(pow((c.x),2)+pow(c.y,2));   // C on XY plane
-
-  //c_len = vec_mag(c);
-  //c_new = cross_prod(z_vec,c);
-  //dot = acos(dot_prod(z_vec,c)/c_len);  // check for angle using dot, and if zero, arm is straight up
 
   // This method prevents math errors when the AB arm is straight up
   if (c_len < ZERO_DIST) {
@@ -349,25 +325,10 @@ float * inverse_arm_kinematics(point c, float l_ab, float l_bc) {
   } 
   return angles;  // return the angles
 }
-/*   NOT USED FOR NOW
-point clawToC(point g, float absC, float thetaD, float s_CG_x, float s_CG_y, float s_CG_z) {
-  // Claw pickup point is g.  Determine c based on joint c and d angles.
-  static point c, c1, c2, d;
-  static float thetaT;
-  c.x = -s_CG_x;  c.y = 0.0;    c.z = -s_CG_z;
-  d.x = 0.0;      d.y = s_CG_y; d.z = 0.0;
-  c1 = rot_pt_x(c,thetaD);  // rotate D
-  c2 = add_pts(c1,d);
-  c1 = rot_pt_y(c2,absC); // rotate C
-  thetaT = atan2((g.y+s_CG_y),g.x); // expected turntable angle
-  c2 = rot_pt_z(c1,thetaT); // correct for turntable angle
-  c1 = add_pts(c2,g);
-  return c1;
-}  */
-point anglesToC(float a, float b, float t, float l_ab, float l_bc){
+
+point anglesToC(float a, float b, float t, float l_ab, float l_bc){  // Forward Kinematics
   // Apply translations and rotations to get the C point
-  //   Forward Kinematics
-  static point pB,pC, pTemp;
+  point pB,pC, pTemp;
   
   pB.x = l_ab;   pB.y = 0.0;  pB.z = 0.0;
   pC.x = l_bc;   pC.y = 0.0;  pC.z = 0.0;
@@ -379,32 +340,7 @@ point anglesToC(float a, float b, float t, float l_ab, float l_bc){
 
   return pC;
 }
-/*  NOT USED FOR NOW
-line anglesToG(float a, float b, float t, float c, float d, float l_ab, float l_bc, float sCGx, float sCGy) {
-  //  Apply translations and rotations to get from point C to G
-  //   Forward Kinematics
-  static point pB,pC, pG, pTemp;
-  static line lCG;
-  
-  pB.x = l_ab;   pB.y = 0.0;  pB.z = 0.0;
-  pC.x = l_bc;   pC.y = 0.0;  pC.z = 0.0;
-  pG.x = sCGx;   pG.y = 0.0;  pG.z = sCGy;
 
-  pTemp = rot_pt_x(pG,d);  // rotate d
-  pG = rot_pt_y(pTemp,c);  // rotate c
-  pTemp = add_pts(pC,pG);  // add G to BC arm
-  pG = rot_pt_y(pTemp,b);  // rotate b
-  pTemp = add_pts(pB,pG);     // add to AB arm
-  pG = rot_pt_y(pTemp,a); // rotate a
-  lCG.p2 = rot_pt_z(pG,t);  // rotate turntable
-
-  pTemp = rot_pt_y(pC,b);  // rotate b
-  pC = add_pts(pB,pTemp);  // add to AB arm
-  pTemp = rot_pt_y(pC,a); // rotate a
-  lCG.p1 = rot_pt_z(pTemp,t);  // rotate turntable
-
-  return lCG;
-} */
 void pot_map(joint & jt) {
   // Map a potentiometer value in millivolts to an angle
   // map(value, fromLow, fromHigh, toLow, toHigh), USES INTEGER MATH
@@ -417,29 +353,6 @@ void pot_map(joint & jt) {
 float servo_map(joint & jt) { // Map current joint angle to the servo microsecond value
   return floatMap(jt.current_angle, jt.svo.low_ang, jt.svo.high_ang, jt.svo.low_ms, jt.svo.high_ms);
 }
-/* NOT USED FOR NOW
-boolean updateArmPtG(arm & the_arm, float to_C, float to_D) { 
-  // Moves current point G toward target_pt at given feed rate (mmps)
-  // updates .current_pt based on speed limit
-  // RETURNS true if done moving, false if not
-  float moveDist;
-   
-  moveDist = the_arm.feedRate * (the_arm.dt/1000.0); // feed rate (mm/sec)*sec = mm  
-  the_arm.line_len = ptpt_dist(the_arm.current_pt,the_arm.target_pt);
-  if (moveDist < the_arm.line_len) { // PARTIAL MOVE
-    the_arm.current_pt = pt_on_line(moveDist,the_arm.line_len, the_arm.current_pt,the_arm.target_pt);
- 
-    the_arm.jC.current_angle = interpolate(moveDist,the_arm.line_len, the_arm.jC.target_angle,to_C);
- 
-    the_arm.jD.current_angle = interpolate(moveDist,the_arm.line_len, the_arm.jD.target_angle,to_D);
-    return false;
-  } else { // FULL MOVE
-    the_arm.current_pt = the_arm.target_pt;
-    the_arm.jC.current_angle = to_C;
-    the_arm.jD.current_angle = to_D;
-    return true;
-  }
-} */
 
 void updateArmPtC(arm & the_arm) { // Moves current point C toward target_pt at given feed rate (mmps)
   float moveDist,newFeedRate,distC;
@@ -502,10 +415,10 @@ void logPoint(arm & the_arm) {
 void logCmds(sequence & the_cmds, char *string) {
   Serial.println("logCmds");
   int i;
-  for (int i=0;i<the_cmds.num_cmds;i++) {
+  for (int i=0;i<the_cmds.num_cmds;++i) {
     Serial.print(string);
     Serial.print(i); 
-    for (int j=0;j<SIZE_CMD_ARRAY;j++) {
+    for (int j=0;j<SIZE_CMD_ARRAY;++j) {
       Serial.print(",");
       Serial.print(the_cmds.cmd[i].arg[j]); 
     }
@@ -555,51 +468,50 @@ boolean runCommand(arm & the_arm, command  & the_cmd) { // TRUE if DONE, FALSE i
       } else
         return false;
       break;
-    case K_C_LOC:  // C servo
-      // second argument is NEW VELO FOR C, DEG per Second
+    case K_C_LOC:  // Move C servo to a local angle
+      // arg[1] is the velocity C, DEG per Second
       if (the_cmd.arg[1] < 10) the_cmd.arg[1] = 10; // NO Negatives or Zeros
       the_arm.jC.target_velocity = the_cmd.arg[1]/RADIAN/1000.0;
-      the_arm.jC.target_angle = the_cmd.arg[2]/RADIAN;  // Third arg is NEW ANGLE FOR C
+      the_arm.jC.target_angle = the_cmd.arg[2]/RADIAN;  // arg[2] is NEW ANGLE FOR C
       the_arm.mode = M_CD_LOC;      
       return true;
       break;
     case K_C_ABS:  // move C servo relative to ground (absolute)
-      // second argument is NEW VELO FOR C, DEG per Second
+      // arg[1] is the velocity C, DEG per Second
       if (the_cmd.arg[1] < 10) the_cmd.arg[1] = 10; // NO Negatives or Zeros
       the_arm.jC.target_velocity = the_cmd.arg[1]/RADIAN/1000.0;
-      the_arm.jC.target_angle = the_cmd.arg[2]/RADIAN;  // Third arg is NEW ANGLE FOR C
+      the_arm.jC.target_angle = the_cmd.arg[2]/RADIAN;  // arg[2] is NEW ANGLE FOR C
       the_arm.mode = M_C_ABS_D_LOC;      
       return true;
       break;
     case K_D_LOC:  // D servo
-      // second argument is NEW VELO FOR D, DEG per Second
+      // arg[1] is the velocity D, DEG per Second
       if (the_cmd.arg[1] < 10) the_cmd.arg[1] = 10; // NO Negatives or Zeros
       the_arm.jD.target_velocity = the_cmd.arg[1]/RADIAN/1000.0;
-      the_arm.jD.target_angle = the_cmd.arg[2]/RADIAN;  // Third arg is NEW ANGLE FOR D
+      the_arm.jD.target_angle = the_cmd.arg[2]/RADIAN;  // arg[2] is NEW ANGLE FOR D
       the_arm.mode = M_C_ABS_D_LOC;      
       return true;
       break;
     case K_D_ABS:  // move D servo relative to ground (absolute)
-      // second argument is NEW VELO FOR D, DEG per Second
+      // arg[1] is the velocity D, DEG per Second
       if (the_cmd.arg[1] < 10) the_cmd.arg[1] = 10; // NO Negatives or Zeros
       the_arm.jD.target_velocity = the_cmd.arg[1]/RADIAN/1000.0;
-      the_arm.jD.target_angle = the_cmd.arg[2]/RADIAN;  // Third arg is NEW ANGLE FOR D
+      the_arm.jD.target_angle = the_cmd.arg[2]/RADIAN;  // arg[2] is NEW ANGLE FOR D
       the_arm.mode = M_CD_ABS;      
       return true;
       break;
     case K_CLAW:  // CLAW servo
-      // second argument is NEW VELO FOR Claw, DEG per Second
+      // arg[1] is the claw velocity, DEG per Second
       if (the_cmd.arg[1] < 10) the_cmd.arg[1] = 10; // NO Negatives or Zeros
       the_arm.jCLAW.target_velocity = the_cmd.arg[1]/RADIAN/1000.0;
-      the_arm.jCLAW.target_angle = the_cmd.arg[2]/RADIAN;  // Third arg is NEW ANGLE FOR Claw
+      the_arm.jCLAW.target_angle = the_cmd.arg[2]/RADIAN;  // arg[2] is NEW ANGLE FOR Claw
       return true;
       break;
-    case K_LINE_C: // line move to C point
+    case K_LINE_C: // line move, from C current_pt to given C target_pt
       the_arm.feedRate = the_cmd.arg[1];
       the_arm.target_pt.x = the_cmd.arg[2];
       the_arm.target_pt.y = the_cmd.arg[3];
       the_arm.target_pt.z = the_cmd.arg[4];
-      the_arm.line_len = ptpt_dist(the_arm.current_pt,the_arm.target_pt); // also calculated in loop update arm... shouldn't do it twice
       
       if (the_arm.line_len < ZERO_DIST) {  // Distance from current to target is small
         return true;
@@ -608,6 +520,7 @@ boolean runCommand(arm & the_arm, command  & the_cmd) { // TRUE if DONE, FALSE i
       }
       break;
     case K_ARC_Z:  // move in circle on z plane
+      /*   REPLACE WITH NEW METOD
       static int rad;
       static point center = {100,0,100};
       static float current_angle; // radians
@@ -629,7 +542,7 @@ boolean runCommand(arm & the_arm, command  & the_cmd) { // TRUE if DONE, FALSE i
         the_arm.target_pt.y = center.y + rad;
         circleInitialize = false;  // don't execute setup again
       }
-      the_arm.line_len = ptpt_dist(the_arm.current_pt,the_arm.target_pt);  // SHOULDN'T DO THIS TWICE??
+      //the_arm.line_len = ptpt_dist(the_arm.current_pt,the_arm.target_pt);  // SHOULDN'T DO THIS TWICE??
       if (abs(current_angle) > PI) {  // do half circle
         circleInitialize = true;
         current_angle = 0.0; 
@@ -638,24 +551,26 @@ boolean runCommand(arm & the_arm, command  & the_cmd) { // TRUE if DONE, FALSE i
         the_arm.target_pt.x = center.x - rad*sin(current_angle);
         if (the_arm.target_pt.x < 10.0) the_arm.target_pt.x = 10.0; // Clip -x! keep the turntable from fast reversing
         the_arm.target_pt.y = center.y + rad*cos(current_angle);
-        current_angle = current_angle + ANGLE_INC*angle_sign; 
+        //current_angle = current_angle + ANGLE_INC*angle_sign; 
         return false; 
       }  else { // let the Arm Loop Update
         return false;  // stay on current segment of circle      
-      }
-    case K_GOTO:  // to be completed
+      } */
+      break;
+    case K_GOTO:  // to be made more robust
+      the_arm.n = the_cmd.arg[1]-1;  //  set the command pointer to the first value
       return true;
-    break;
+      break;
     case K_AIM:
       the_arm.mode = M_CD_AIM;      
       the_arm.aim_pt.x = the_cmd.arg[1];
       the_arm.aim_pt.y = the_cmd.arg[2];
       the_arm.aim_pt.z = the_cmd.arg[3];
       return true;      
-    break;
+      break;
     default:
       return true;
-    break;          
+      break;          
   } // end switch   
 }
 
@@ -693,31 +608,77 @@ void getCmdSerial(command & cmd) { // read command from serial port
   
   if (Serial.available() > 0){
 
-    for (i=1;i<SIZE_CMD_ARRAY;i++) 
+    for (i=0;i<SIZE_CMD_ARRAY;++i) 
       cmd.arg[i] = 0;  // initialize
 
     i=0;
     while (Serial.available() > 0) {
       cmd.arg[i] = Serial.parseInt(); // get available ints
-      i++;
+      ++i;
     }    
     // print the command
     Serial.print("Command: ");
-    for (i=0;i<SIZE_CMD_ARRAY;i++) {
+    for (i=0;i<SIZE_CMD_ARRAY;++i) {
       Serial.print(cmd.arg[i]);
       Serial.print(",");
     }
     Serial.println("END");
   }
-  //return(cmd); 
 }
-
+void path_orbit_xy(pathAngles & the_pathA,point center,int rad) {  // build 180 deg arc path about center, symetric about y=0 plane
+  int i;  
+  static float current_angle; // radians
+  float angle_inc; // radians  
+  static float *angles;
+  point c,d;
+  float d_len;
+  float dc_vect_ang;
+  current_angle = 90.0 / RADIAN; 
+  angle_inc = 180.0/ RADIAN / (PATH_SIZE-1);
+  d.z = center.z;
+  c.z = d.z + S_CG_X;  // since c joint is rotated -90, then x becomes z
+  for(i=0;i<PATH_SIZE;++i) {
+    d.x = center.x + rad*cos(current_angle);  // point d traces the arc
+    d.y = center.y + rad*sin(current_angle);
+    // compute the DC vector angle.  DC vector mag is S_CG_Y. 
+    d_len = ptpt_dist({0,0,0},{d.x,d.y,0});
+    dc_vect_ang = asin(d.y/d_len) + asin(-S_CG_Y/d_len) + 90.0/RADIAN;
+    c.x = d.x - S_CG_Y*cos(dc_vect_ang); // compute the C point
+    c.y = d.y - S_CG_Y*sin(dc_vect_ang);   
+    angles = inverse_arm_kinematics(c,LEN_AB,LEN_BC); // feed c to the inverse function
+    the_pathA.a[i] = angles[0]*ANGLE_SCALE;   // CONVERT TO INTEGER AND DEGREES FOR OPENSCAD SIMULATION
+    the_pathA.b[i] = angles[1]*ANGLE_SCALE;
+    the_pathA.c[i] = getCang(angles[0],angles[1],-90.0/RADIAN)*ANGLE_SCALE;
+    //the_pathA.d[i] = current_angle*ANGLE_SCALE;
+    the_pathA.d[i] = (angles[2] - current_angle)*ANGLE_SCALE;
+    //the_pathA.t[i] = dc_vect_ang*ANGLE_SCALE;
+    the_pathA.t[i] = angles[2]*ANGLE_SCALE;
+    current_angle = current_angle + angle_inc;
+  }
+}
+void print_pathAngles(pathAngles & the_pathA) {  // Print servo angle path for OpenSCAD
+  int i;  
+  Serial.print("[");
+  for(i=0;i<PATH_SIZE;++i) {
+    Serial.print("[");
+    Serial.print((float)the_pathA.a[i]/ANGLE_SCALE*RADIAN,1);
+    Serial.print(",");
+    Serial.print((float)the_pathA.b[i]/ANGLE_SCALE*RADIAN,1);
+    Serial.print(",");
+    Serial.print((float)the_pathA.c[i]/ANGLE_SCALE*RADIAN,1);
+    Serial.print(",");
+    Serial.print((float)the_pathA.d[i]/ANGLE_SCALE*RADIAN,1);
+    Serial.print(",");
+    Serial.print((float)the_pathA.t[i]/ANGLE_SCALE*RADIAN,1);
+    Serial.println("],");
+  }
+}
 void setup() {  // setup code here, to run once:
   pinMode(13,OUTPUT); // LED on Arduino board
   digitalWrite(13,HIGH); // Turn the LED on
     
   Serial.begin(115200); // baud rate
-  delay(1500);  // serial output needs a delay
+  delay(2500);  // serial output needs a delay
 
   pwm.begin();
   /*  Adafruit sevo library
@@ -770,14 +731,16 @@ void setup() {  // setup code here, to run once:
   make3.state = 1; 
   
   digitalWrite(13,LOW); // Turn the LED off
+  
+  path_orbit_xy(pathA,{400,0,200},250);
+  print_pathAngles(pathA);
 }
 
 void stateLoop(arm & the_arm) { // Call this Function at the top of main loop()
   // This is "setup" for each state
   // checks for a change in state and runs the setup for that state  
   static int old_state = -1;  // should force initialize first pass
-  int new_x, new_z;  
-  // jS (joint Selector) is a global variable
+  static int new_x, new_y, new_z;  
   
   jS.pot_value = analogRead(jS.pot.analog_pin);  // read the selector
   the_arm.state = jS.pot_value/100; // convert to an integer from 0 to 9
@@ -788,22 +751,23 @@ void stateLoop(arm & the_arm) { // Call this Function at the top of main loop()
         the_arm.n = 0; // reset command pointer
         the_arm.rampDown = false;
         break;
-      case S_AUTO_LINE_X:
+      case S_AUTO_LINE_X:  // dance
         the_arm.n = 0; // reset command pointer
         the_arm.mode = M_CD_AIM;  // Aim at point that is on y=500 plane
         the_arm.rampDown = false;
-        new_z = make3.target_pt.z;
+        new_z = make3.current_pt.z;   // was target_pt... should be the same
         if (new_z < FLOOR)  new_z = FLOOR;
         if (new_z > 500)  new_z = 500;
-        the_arm.aim_pt.x = 400.0;  // half way between x = 100 and 700
-        the_arm.aim_pt.y = 500.0;
+        the_arm.aim_pt.x = make3.current_pt.x;  // current point y
+        new_y = make3.current_pt.y;
+        the_arm.aim_pt.y = new_y+500.0;
         the_arm.aim_pt.z = new_z;
-        setCmd(sixCmds.cmd[0],K_LINE_C,120,150,0,new_z);  // move to start
-        setCmd(sixCmds.cmd[1],K_TIMER,500,0,0,0);
-        setCmd(sixCmds.cmd[2],K_LINE_C,100,600,0,new_z); // OUT
-        setCmd(sixCmds.cmd[3],K_TIMER,500,0,0,0);
-        setCmd(sixCmds.cmd[4],K_LINE_C,100,150,0,new_z);  // BACK
-        setCmd(sixCmds.cmd[5],K_LINE_C,60,350,0,new_z);  // MID
+        setCmd(sixCmds.cmd[0],K_LINE_C,300,the_arm.aim_pt.x-100,new_y,new_z);  // move to start
+        setCmd(sixCmds.cmd[1],K_LINE_C,200,the_arm.aim_pt.x,new_y,new_z);
+        setCmd(sixCmds.cmd[2],K_LINE_C,200,the_arm.aim_pt.x,new_y,new_z+200);
+        setCmd(sixCmds.cmd[3],K_LINE_C,400,the_arm.aim_pt.x+100,new_y,new_z);
+        setCmd(sixCmds.cmd[4],K_LINE_C,300,the_arm.aim_pt.x,new_y,new_z+150);
+        setCmd(sixCmds.cmd[5],K_GOTO,0,0,0,0);  // loop back to start
         break;
       case S_AUTO_LINE_Y:
         the_arm.n = 0; // reset command pointer
@@ -869,7 +833,6 @@ void stateLoop(arm & the_arm) { // Call this Function at the top of main loop()
         the_arm.aim_pt.x = make3.target_pt.z + 250;
         the_arm.aim_pt.y = 0.0;
         the_arm.aim_pt.z = make3.target_pt.z;
-        //the_arm.mode = M_CD_ABS;
         the_arm.feedRate = 400.0;  // mm per second
         the_arm.rampDown = true;
         break;
@@ -950,7 +913,7 @@ void loopUpdateArm (arm & the_arm) { // Call this Function at the bottom of main
       updateJointBySpeed(the_arm.jD, the_arm.dt);  
     break;
     case M_CD_ABS:
-      the_arm.jC.current_angle = getCang(the_arm,the_arm.jC.target_angle);
+      the_arm.jC.current_angle = getCang(the_arm.jA.current_angle,the_arm.jB.current_angle,the_arm.jC.target_angle);
       the_arm.jD.current_angle = the_arm.jT.current_angle - the_arm.jD.target_angle;     
     break;
     case M_C_LOC_D_ABS:
@@ -958,18 +921,16 @@ void loopUpdateArm (arm & the_arm) { // Call this Function at the bottom of main
       the_arm.jD.current_angle = the_arm.jT.current_angle - the_arm.jD.target_angle;     
     break;
     case M_C_ABS_D_LOC:
-      the_arm.jC.current_angle = getCang(the_arm,the_arm.jC.target_angle);
+      the_arm.jC.current_angle = getCang(the_arm.jA.current_angle,the_arm.jB.current_angle,the_arm.jC.target_angle);
       updateJointBySpeed(the_arm.jD, the_arm.dt);  
     break;
     case M_CD_AIM: // computes C and D from current and aim points and uses angles as absolute 
-      //the_arm.jC.target_angle = atan2(the_arm.aim_pt.z-the_arm.current_pt.z,the_arm.aim_pt.x-the_arm.current_pt.x) - 90.0/RADIAN;
       if (the_arm.current_pt.z < LEN_AB) the_arm.jC.target_angle = - 90.0/RADIAN; 
       else the_arm.jC.target_angle = 90.0/RADIAN;
-      //  UPDATE D ANGLE MATH 
-      //d1 = atan2(the_arm.aim_pt.y-the_arm.current_pt.y,the_arm.aim_pt.x-the_arm.current_pt.x);
+      //  c1 point represents the camera offset from the c point
       c1 = rot_pt_z(ctemp,the_arm.jT.current_angle-90.0/RADIAN);  // ROTATE CAMERA/G POINT BY THE ARM/TURNTABLE ANGLE
       the_arm.jD.target_angle = atan2(the_arm.aim_pt.y-the_arm.current_pt.y-c1.y,the_arm.aim_pt.x-the_arm.current_pt.x-c1.x);
-      the_arm.jC.current_angle = getCang(the_arm,the_arm.jC.target_angle);
+      the_arm.jC.current_angle = getCang(the_arm.jA.current_angle,the_arm.jB.current_angle,the_arm.jC.target_angle);
       the_arm.jD.current_angle = the_arm.jT.current_angle - the_arm.jD.target_angle;     
     break;
   }

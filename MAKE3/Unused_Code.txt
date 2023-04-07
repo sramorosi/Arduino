@@ -1,0 +1,81 @@
+
+float dot_prod (point p1, point p2) {
+  return p1.x*p2.x + p1.y*p2.y + p1.z*p2.z;
+}
+
+point cross_prod (point p1, point p2) {
+  static point cross_p;
+  cross_p.x = p1.y*p2.z - p1.z*p2.y;
+  cross_p.y = p1.z*p2.x - p1.x*p2.z;
+  cross_p.z = p1.x*p2.y - p1.y*p2.x;
+  return cross_p;
+}
+
+float vec_mag(point p) {
+  return sqrt(pow((p.x),2)+pow(p.y,2)+pow(p.z,2));
+}
+
+/*   NOT USED FOR NOW
+point clawToC(point g, float absC, float thetaD, float s_CG_x, float s_CG_y, float s_CG_z) {
+  // Claw pickup point is g.  Determine c based on joint c and d angles.
+  static point c, c1, c2, d;
+  static float thetaT;
+  c.x = -s_CG_x;  c.y = 0.0;    c.z = -s_CG_z;
+  d.x = 0.0;      d.y = s_CG_y; d.z = 0.0;
+  c1 = rot_pt_x(c,thetaD);  // rotate D
+  c2 = add_pts(c1,d);
+  c1 = rot_pt_y(c2,absC); // rotate C
+  thetaT = atan2((g.y+s_CG_y),g.x); // expected turntable angle
+  c2 = rot_pt_z(c1,thetaT); // correct for turntable angle
+  c1 = add_pts(c2,g);
+  return c1;
+}  */
+/*  NOT USED FOR NOW
+line anglesToG(float a, float b, float t, float c, float d, float l_ab, float l_bc, float sCGx, float sCGy) {
+  //  Apply translations and rotations to get from point C to G
+  //   Forward Kinematics
+  static point pB,pC, pG, pTemp;
+  static line lCG;
+  
+  pB.x = l_ab;   pB.y = 0.0;  pB.z = 0.0;
+  pC.x = l_bc;   pC.y = 0.0;  pC.z = 0.0;
+  pG.x = sCGx;   pG.y = 0.0;  pG.z = sCGy;
+
+  pTemp = rot_pt_x(pG,d);  // rotate d
+  pG = rot_pt_y(pTemp,c);  // rotate c
+  pTemp = add_pts(pC,pG);  // add G to BC arm
+  pG = rot_pt_y(pTemp,b);  // rotate b
+  pTemp = add_pts(pB,pG);     // add to AB arm
+  pG = rot_pt_y(pTemp,a); // rotate a
+  lCG.p2 = rot_pt_z(pG,t);  // rotate turntable
+
+  pTemp = rot_pt_y(pC,b);  // rotate b
+  pC = add_pts(pB,pTemp);  // add to AB arm
+  pTemp = rot_pt_y(pC,a); // rotate a
+  lCG.p1 = rot_pt_z(pTemp,t);  // rotate turntable
+
+  return lCG;
+} */
+/* NOT USED FOR NOW
+boolean updateArmPtG(arm & the_arm, float to_C, float to_D) { 
+  // Moves current point G toward target_pt at given feed rate (mmps)
+  // updates .current_pt based on speed limit
+  // RETURNS true if done moving, false if not
+  float moveDist;
+   
+  moveDist = the_arm.feedRate * (the_arm.dt/1000.0); // feed rate (mm/sec)*sec = mm  
+  the_arm.line_len = ptpt_dist(the_arm.current_pt,the_arm.target_pt);
+  if (moveDist < the_arm.line_len) { // PARTIAL MOVE
+    the_arm.current_pt = pt_on_line(moveDist,the_arm.line_len, the_arm.current_pt,the_arm.target_pt);
+ 
+    the_arm.jC.current_angle = interpolate(moveDist,the_arm.line_len, the_arm.jC.target_angle,to_C);
+ 
+    the_arm.jD.current_angle = interpolate(moveDist,the_arm.line_len, the_arm.jD.target_angle,to_D);
+    return false;
+  } else { // FULL MOVE
+    the_arm.current_pt = the_arm.target_pt;
+    the_arm.jC.current_angle = to_C;
+    the_arm.jD.current_angle = to_D;
+    return true;
+  }
+} */

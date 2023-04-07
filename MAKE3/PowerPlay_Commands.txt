@@ -14,6 +14,17 @@
 #define LINEDANG 0
 #define LINEZ -50
 
+/*sequence coneCmds ={7,{
+   {K_CLAW,100,CLAWOPEN,0,0},  // open the claw
+   {K_LINE_C,MMPS, X_PP,Y_MV,FLOORH+CONEH*7}, // ready over cone 1
+   {K_LINE_C,MMPS, X_PP,Y_MV,FLOORH+CONEH*5}, // down to cone 1
+   {K_CLAW,500,CLAWCLOSE,0,0}, // pick cone 1
+   {K_LINE_C,MMPS, X_PP,Y_MV,FLOORH+CONEH*9}, // up with cone 1 
+   {K_LINE_C,MMPS, X_PP,Y_MV_NEG,MIDJUNTH}, // Move over Junction
+   {K_CLAW,500,CLAWOPEN,0,0}  // drop cone 1
+}};  */
+
+
 static int lineCmds[][SIZE_CMD_ARRAY]=
   {{C_CLAW,200,CLAWOPEN,0,0,0,0},
    {C_LINE,2000, 160,-S_CG_Z,LINEZ,  -90,LINEDANG}, // ready
