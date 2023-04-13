@@ -1,3 +1,18 @@
+  /*  DEBUGGING OF PATH IN SETUP
+  path_orbit_xy(pathA,{400,0,200},250);  // specify center point and radius
+  //print_pathAngles(pathA);
+  make3.line_len = arcLen(180.0,250.0);  // STORE THE ARC LENGTH
+  Serial.print("Len,");
+  Serial.println(make3.line_len,2);  
+  float f;
+  for (f=0.0;f<make3.line_len+10.0;f=f+10.0) {
+    Serial.print("f=");
+    Serial.print(f,2);
+    make3.jA.current_angle = getPA(pathA, 5, f,make3.line_len);
+    Serial.print(",T angle is,");
+    Serial.println(make3.jA.current_angle*RADIAN,2);
+  }  */
+
 
 float dot_prod (point p1, point p2) {
   return p1.x*p2.x + p1.y*p2.y + p1.z*p2.z;
