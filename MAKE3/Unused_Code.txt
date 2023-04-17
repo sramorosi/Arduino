@@ -94,3 +94,58 @@ boolean updateArmPtG(arm & the_arm, float to_C, float to_D) {
     return true;
   }
 } */
+
+// Command Values for picking 5 stack PowerPlay cones and placing on Mid height Junction
+#define MMPS 600 // mm per second
+#define X_PP 254 // y location for pick and place in mm
+#define Y_MV 300 // x cone pick location in mm (was 700)
+#define Y_MV_NEG -200 // x cone place location in mm (was -400)
+#define FLOORH -40 // z of floor for picking cone from floor
+#define MIDJUNTH 400 // z height of Mid Juction for placing (was 600)
+#define CONEH 32 // DELTA cone height STACKED mm
+#define CLAWCLOSE -50
+#define CLAWOPEN 10
+      case S_AUTO_2: // LINE BACK AND FORTH IN Y DIRECTION,  TELE METHOD
+        /*the_arm.n = 0; // reset command pointer
+        the_arm.mode = HM_CD_AIM;  // Aim at point that is on y=0 plane
+        new_x = make3.target_pt.x;
+        if (new_x < 250) new_x = 250;  // can't be too close
+        if (new_x > 400) new_x = 400;  // can't be too far
+        new_z = make3.target_pt.z;
+        if (new_z > 500)  new_z = 500;
+        the_arm.aim_pt.x = new_x + 300.0;
+        the_arm.aim_pt.y = 0.0;
+        the_arm.aim_pt.z = new_z;
+        setCmd(seQ.cmd[0],K_LINE_C,160,new_x,LEN_AB+100,new_z);
+        setCmd(seQ.cmd[1],K_TIMER,500,0,0,0);
+        setCmd(seQ.cmd[2],K_LINE_C,100,new_x,-LEN_AB-100,new_z);
+        setCmd(seQ.cmd[3],K_TIMER,500,0,0,0);
+        setCmd(seQ.cmd[4],K_LINE_C,100,new_x,LEN_AB+100,new_z);
+        setCmd(seQ.cmd[5],K_LINE_C,100,new_x,0,new_z);  // stop in the middle for alignment 
+        */
+
+      case S_AUTO_8: //  ORBIT -- PATH METHOD
+      /*
+        the_arm.n = 0; // reset command pointer
+        make3.target_pt.z = make3.target_pt.z-S_CG_X;
+        make3.current_pt = make3.target_pt;        
+        setCmd(seQ.cmd[0],K_AIM,450,0,make3.current_pt.z,0);
+        setCmd(seQ.cmd[1],K_LINE_G,50,480,240,make3.current_pt.z);
+        setCmd(seQ.cmd[2],K_ORBIT_Z,60,450,280,220);  // {speed,center,rad,sweep}
+        setCmd(seQ.cmd[3],K_ORBIT_Z,70,450,280,-220);
+        setCmd(seQ.cmd[4],K_ORBIT_Z,80,450,280,220);
+        setCmd(seQ.cmd[5],K_ORBIT_Z,90,450,280,-220);   */
+        break; 
+      case S_AUTO_10:
+      /*
+        the_arm.n = 0; // reset command pointer
+        new_z = make3.current_pt.z-S_CG_X;   // was target_pt... should be the same
+        make3.target_pt.z = make3.target_pt.z-S_CG_X;
+        make3.current_pt = make3.target_pt;        
+        setCmd(seQ.cmd[0],K_AIM,600,0,new_z,0);
+        setCmd(seQ.cmd[1],K_LINE_G,500,200,-280,new_z);
+        setCmd(seQ.cmd[2],K_LINE_G,500,200,280,new_z);
+        setCmd(seQ.cmd[3],K_LINE_G,500,450,280,new_z);
+        setCmd(seQ.cmd[4],K_LINE_G,500,450,-280,new_z);
+        setCmd(seQ.cmd[5],K_LINE_G,500,200,-280,new_z); */
+
