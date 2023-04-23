@@ -7,7 +7,7 @@
 #define SERVO_FREQ 50 // Analog servos run at ~50 Hz updates, from Adafruit
 #define RADIAN 57.2957795  // number of degrees in one radian
 #define RAMP_START_DIST 50 // distance at which velocity ramp-down begins (mm) used in velocity control
-#define ZERO_DIST 0.8     // value used to determine if distance is zero (mm)
+#define ZERO_DIST 0.5     // value used to determine if distance is zero (mm)
 
 // STATES (or programs)  Controlled by the selector potentiometer.
 #define S_SERIAL 0      // enter a serial command from serial.input
@@ -18,8 +18,8 @@
 //#define S_TELEOP_5 5 
 #define S_AUTO_5 5   // wait above block
 #define S_AUTO_6 6   // block stack sequence
-#define S_TELEOP_7 7  
-#define S_AUTO_8 8 
+#define S_AUTO_7 7   // block to block stack sequence
+#define S_TELEOP_8 8   
 #define S_TELEOP_9 9  
 #define S_AUTO_10 10 
 
@@ -40,21 +40,22 @@
  */
 #define SIZE_CMD_ARRAY 5  // NUMBER OF VALUES PER COMMAND. Command array is 2 dimensional. This is number of commands per row.
 
-// Synchronous commands (completes command before next command is sent)
+// Synchronous commands (completes command before next command is sent) -- see runCommand
 #define K_TIMER 1    // timer {millisconds}
 //#define K_LINE_C 2   // line move to new C point   {feed rate, x,y,z}   TELEOP METHOD
 #define K_LINE_G 3   // line move to new G point {feed rate, x,y,z}     PATH METHOD
 #define K_ORBIT_Z 4  // G point circular orbit  {feed rate, x-center(mm),radius(mm),angle_sweep(deg)}
                      //  angle_sweep should be between 90 and 270. Motion will be CCW.  If negative, motion will be CW 
 // Asynchronous commands (does not wait to be completed)
-#define K_C_LOC 12    // C local move           {angle rate, target angle}
-#define K_C_ABS 22    // C Absolute Angle Mode, {angle rate, target angle}
-#define K_D_LOC 13    // D local move           {angle rate, target angle}
-#define K_D_ABS 23     // D Absolute Angle Mode {angle rate, target angle}
-#define K_CLAW 14   // claw local move      {angle rate, target angle}
-#define K_AIM 5     // Use AIM mode for given point {x,y,z}
+#define K_AIM 5     // Turns on AIM mode. The aiming point is the parameters {x,y,z}
+#define K_LIFT 6    // Turns on or off the z-lift mode for the K_LINE_G command.  parameters = {0=off, 1=on;  z-lift amount(mm)}
 #define K_GOTO 9    // Go back to given command line {command line number} 
 #define K_COMBINE 10 // combines given x y z values with an existing command
+#define K_CLAW 11   // claw local move      {angle rate, target angle}
+#define K_C_LOC 12    // C local move           {angle rate, target angle}
+#define K_C_ABS 13    // C Absolute Angle Mode, {angle rate, target angle}
+#define K_D_LOC 14    // D local move           {angle rate, target angle}
+#define K_D_ABS 15     // D Absolute Angle Mode {angle rate, target angle}
 #define K_END 99   // indicates to stop running commands
 
 // GEOMETRY OF ARM:
@@ -122,9 +123,8 @@ struct arm {  // as in Robot Arm
   joint jT;
 };
 
-struct command {
-  int arg[SIZE_CMD_ARRAY];
-};
+struct command {int arg[SIZE_CMD_ARRAY];};
+//  struct command sequences[10];  // This would be better struct sequence below
 
 struct sequence {  // An array of commands
   int nuHm_cmds;
@@ -132,7 +132,7 @@ struct sequence {  // An array of commands
 };
 
 // Path of Servo Angles.  Stored as integer to minimize memory usage.  Scale by at least 1000 for smooth results
-#define PATH_SIZE 20
+#define PATH_SIZE 20   // was 20
 #define ANGLE_SCALE 1000   // used to store radians in integer format (radian*SCALE)
 struct pathAngles {
   int a[PATH_SIZE];
@@ -147,8 +147,12 @@ arm make3;
 joint jS;  // selector pot
 pathAngles pathA; // for storing pre-computed servo angles
 
-sequence seQ = {8,{{0,0,0,0,0},
+sequence seQ = {12,{{0,0,0,0,0},
                 {0,0,0,0,0}, 
+                {0,0,0,0,0},
+                {0,0,0,0,0},
+                {0,0,0,0,0},
+                {0,0,0,0,0},
                 {0,0,0,0,0},
                 {0,0,0,0,0},
                 {0,0,0,0,0},
@@ -330,7 +334,6 @@ point anglesToG(float a, float b, float t, float c, float d, float l_ab, float l
   pTemp = add_pts(pB,pG);     // add to AB arm
   pG = rot_pt_y(pTemp,a); // rotate a
   pTemp = rot_pt_z(pG,t);  // rotate turntable
-
   return pTemp;
 }  
 point pointGtoPointC(point pG,float c, float d, float sCGx, float sCGy) {
@@ -463,6 +466,8 @@ boolean runCommand(arm & the_arm, sequence  & the_seq, int idx) { // TRUE if DON
   static point center,final_g;      // must be static
   static float currentLen, stepLen, rad, sweep;  // must be static
   static int numberLoops = 1;
+  static boolean liftPath = false;
+  static int liftValue = 0;
   int index;
   command the_cmd;    
   the_cmd = the_seq.cmd[idx]; // pull out the one command from the sequence
@@ -477,6 +482,7 @@ boolean runCommand(arm & the_arm, sequence  & the_seq, int idx) { // TRUE if DON
       } else  return false;
       break;
     case K_ORBIT_Z:  // point G orbits in an xy plane, a point on xz plane
+    /*
       if (the_arm.initialize) {  
         the_arm.feedRate = (float)the_cmd.arg[1];
         center = {the_cmd.arg[2],0.0,the_arm.target_pt.z};
@@ -504,13 +510,13 @@ boolean runCommand(arm & the_arm, sequence  & the_seq, int idx) { // TRUE if DON
         //Serial.println(currentLen,2);
         currentLen = currentLen + stepLen;        
         return false;
-      }
+      }  */
       break;
     case K_LINE_G:  // pt to pt line of POINT G.  Set aim point with AIM command, PRIOR to this command.
       if (the_arm.initialize) {  
         the_arm.feedRate = (float)the_cmd.arg[1];
         final_g = {the_cmd.arg[2],the_cmd.arg[3],the_cmd.arg[4]};  // final_g is the final point
-        path_line(pathA,{the_arm.current_pt.x,the_arm.current_pt.y,the_arm.current_pt.z},final_g,the_arm.aim_pt);  // Build the path. Stored in global pathA
+        path_line(pathA,{the_arm.current_pt.x,the_arm.current_pt.y,the_arm.current_pt.z},final_g,the_arm.aim_pt,liftPath,liftValue);  // Build the path. Stored in global pathA
         print_pathAngles(pathA);
         printPoint(the_arm.current_pt,'A');
         printPoint(final_g,'B');
@@ -552,6 +558,13 @@ boolean runCommand(arm & the_arm, sequence  & the_seq, int idx) { // TRUE if DON
       the_seq.cmd[index].arg[2] = the_seq.cmd[index].arg[2] + center.x;  
       the_seq.cmd[index].arg[3] = the_seq.cmd[index].arg[3] + center.y;  
       the_seq.cmd[index].arg[4] = the_seq.cmd[index].arg[4] + center.z;  
+      return true;
+      break;
+    case K_LIFT: 
+      index = the_cmd.arg[1];
+      if (index == 0) liftPath = false;
+      if (index == 1) liftPath = true;
+      liftValue = the_cmd.arg[2];
       return true;
       break;
     case K_C_LOC:  // Move C servo to a local angle
@@ -702,7 +715,7 @@ void getCmdSerial(command & cmd) { // read command from serial port
     Serial.println("END");
   }
 }
-
+/*
 point path_orbit_xy(pathAngles & the_pathA,point center,int rad, float sweepAng) {  // Orbit d about center, symetric about y=0 plane    
   // Aims camera at center or orbit
   //  sweepAng should be from 90 to 270 or -90 to -270
@@ -735,35 +748,48 @@ point path_orbit_xy(pathAngles & the_pathA,point center,int rad, float sweepAng)
   }
   return d;  // return the final point
 }
-void path_line(pathAngles & the_pathA,point start,point end, point aim) {  // build G point path from start to end 
-  // align D angle to aim at point aim
-  // Path velocity follows sine wave (vally to peak), to minimize accelerations
+*/
+void path_line(pathAngles & the_pathA,point start,point end, point aim,boolean liftMiddle,int lift) {  
+  // Build a G-point path from start to end, and align D-angle to aim at point aim
+  // Path increments (~velocity) are sized by a sine wave (vally to peak), to minimize accelerations
   // ASSUMES THAT THE C JOINT IS -90 DEG ABSOLUTE (POINTING DOWN)
+  //   since c joint is rotated -90, then S_CG_X is added to z 
   // ASSUMES THAT S_CG_Z IS ZERO (G POINT IS ALONG AXIS OF D SERVO)
+  // If boolean liftMiddle == true then function (zLift = cos(a)*lift) is added to c.z 
   int i;  
   point angles;  // used to receive angles from IK
   point c,g;
   float g_dist, cg_vect_ang, d_aim_angle,lineLen,travel,a,angIncrement;
+
   lineLen = ptpt_dist(start,end);  // 3d distance from point start to end
   travel = 0.0;  // initialize travel
-  angIncrement = (180.0/RADIAN)/PATH_SIZE;  // set angle increment
+  angIncrement = (180.0/RADIAN)/(PATH_SIZE-1);  // set angle increment
   a = -90.0/RADIAN;   // initialize SINE WAVE FUNCTION
   for(i=0;i<PATH_SIZE;++i) {
-    g = pt_on_line(travel,lineLen,start,end);
     travel = (sin(a)+1.0)*lineLen/2.0;  // distance traveled, SINE WAVE FUNCTION
+    g = pt_on_line(travel,lineLen,start,end);
+    //printPoint(g,'g');
+    //Serial.print("a=");
+    //Serial.println(a*RADIAN,1);
+
     g_dist = ptpt_dist({0,0,0},{g.x,g.y,0});  // g distance from origin, xy only
     cg_vect_ang = asin(g.y/g_dist) + asin(-S_CG_Y/g_dist) + 90.0/RADIAN;  // TRICKY TRIG HERE
-    c.x = g.x - S_CG_Y*cos(cg_vect_ang); // compute the C point
+    c.x = g.x - S_CG_Y*cos(cg_vect_ang); // account for the S_CG_Y offset in both x and y
     c.y = g.y - S_CG_Y*sin(cg_vect_ang);   
-    c.z = g.z + S_CG_X;  // since c joint is rotated -90, then x becomes z
+
+    if (liftMiddle) c.z = g.z + S_CG_X + cos(a)*lift;  // add the lift function
+    else c.z = g.z + S_CG_X;        // don't add the lift function (straight line path)
+
     inverseArmKin(c,LEN_AB,LEN_BC,angles); // feed c to the inverse function
     the_pathA.a[i] = angles.x*ANGLE_SCALE;   // SCALE RADIANS AND STORE AS INTEGER
+    //the_pathA.a[i] = a*ANGLE_SCALE;   // SCALE RADIANS AND STORE AS INTEGER
     the_pathA.b[i] = angles.y*ANGLE_SCALE;
     the_pathA.c[i] = getCang(angles.x,angles.y,-90.0/RADIAN)*ANGLE_SCALE;
     // USE AIM POINT TO FIND D ANGLE
     d_aim_angle = atan2((aim.y-g.y),(aim.x-g.x));
     the_pathA.d[i] = (angles.z - d_aim_angle)*ANGLE_SCALE;
     the_pathA.t[i] = angles.z*ANGLE_SCALE; 
+
     a = a + angIncrement;
   }
 }
@@ -798,17 +824,6 @@ void setup() {  // setup code here, to run once:
    * In theory the internal oscillator (clock) is 25MHz but it really isn't
    * that precise. You can 'calibrate' this by tweaking this number until
    * you get the PWM update frequency you're expecting!
-   * The int.osc. for the PCA9685 chip is a range between about 23-27MHz and
-   * is used for calculating things like writeMicroseconds()
-   * Analog servos run at ~50 Hz updates, It is importaint to use an
-   * oscilloscope in setting the int.osc frequency for the I2C PCA9685 chip.
-   * 1) Attach the oscilloscope to one of the PWM signal pins and ground on
-   *    the I2C PCA9685 chip you are setting the value for.
-   * 2) Adjust setOscillatorFrequency() until the PWM update frequency is the
-   *    expected value (50Hz for most ESCs)
-   * Setting the value here is specific to each individual I2C PCA9685 chip and
-   * affects the calculations for the PWM update frequency. 
-   * Failure to correctly set the int.osc value will cause unexpected PWM results
    */
   pwm.setOscillatorFrequency(27000000);
   pwm.setPWMFreq(SERVO_FREQ);  // Analog servos run at ~50 Hz updates
@@ -845,7 +860,7 @@ void setup() {  // setup code here, to run once:
   
   digitalWrite(13,LOW); // Turn the LED off
 
-  //path_line(pathA,{200,200,200},{200,-200,200},{2000,0,200});
+  //path_line(pathA,{200,200,200},{200,-200,200},{2000,0,200},true,70);
   //print_pathAngles(pathA);  
   }
 
@@ -870,7 +885,8 @@ void stateLoop(arm & the_arm) { // Call this Function at the top of main loop()
         the_arm.loopCount = 0;
         the_arm.mode = HM_CD_AIM; 
         make3.aim_pt.x = 250; make3.aim_pt.y =-5000; make3.aim_pt.z = 100;
-        setCmd(seQ.cmd[0],K_LINE_G,200,250,200,-50);  // move to start
+        setCmd(seQ.cmd[0],K_LIFT,0,0,0,0); 
+        setCmd(seQ.cmd[1],K_LINE_G,300,250,200,-50);  // move to start
         setCmd(seQ.cmd[2],K_CLAW,  200,-15,500,0); // open claw and wait
         setCmd(seQ.cmd[3],K_END,0,0,0,0); 
         break;      
@@ -879,23 +895,41 @@ void stateLoop(arm & the_arm) { // Call this Function at the top of main loop()
         the_arm.loopCount = 0;
         the_arm.mode = HM_CD_AIM; 
         make3.aim_pt.x = 250; make3.aim_pt.y =-5000; make3.aim_pt.z = 100;
-        setCmd(seQ.cmd[0],K_LINE_G,200,250,200,-100);  // move to start
-        setCmd(seQ.cmd[1],K_CLAW,  200,45,500,0); // close claw and wait
-        setCmd(seQ.cmd[2],K_LINE_G,200,250,-200,0); 
-        setCmd(seQ.cmd[3],K_LINE_G,200,250,-200,-100);
-        setCmd(seQ.cmd[4],K_CLAW,  200,-45,500,0); // open claw and wait
-        setCmd(seQ.cmd[5],K_COMBINE,2, 0, 0, 50);
-        setCmd(seQ.cmd[6],K_COMBINE,3, 0, 0, 50);
-        setCmd(seQ.cmd[7],K_GOTO,0,2,0,0);  // go to command 0 and loop x times
+        setCmd(seQ.cmd[0],K_LINE_G,300,250,200,-100);  // move down, first block pickup
+        setCmd(seQ.cmd[1],K_LIFT,1,100,0,0);  // toggle on the z-lift for paths
+        setCmd(seQ.cmd[2],K_CLAW,  200,45,400,0); // close claw
+        setCmd(seQ.cmd[3],K_LINE_G,300,250,-200,-100);  // move right
+        setCmd(seQ.cmd[4],K_CLAW,  200,-45,400,0); // open claw
+        setCmd(seQ.cmd[5],K_LINE_G,300,250,200,-100);  // move to left
+        setCmd(seQ.cmd[6],K_COMBINE,3, 0, 0, 51);
+        setCmd(seQ.cmd[7],K_GOTO,2,5,0,0);  // go to command 2 and loop
+        setCmd(seQ.cmd[8],K_LINE_G,300,250,0,200);  // move to block pickup
+        setCmd(seQ.cmd[9],K_LIFT,0,100,0,0);  // toggle z-lift off
+        setCmd(seQ.cmd[10],K_END,0,0,0,0); 
         break;      
-      case S_AUTO_8: //  ORBIT -- PATH METHOD
+      case S_AUTO_7: //  BLOCK STACK TO STACK
+        the_arm.n = 0; // reset command pointer
+        the_arm.loopCount = 0;
+        the_arm.mode = HM_CD_AIM; 
+        make3.aim_pt.x = 250; make3.aim_pt.y =-5000; make3.aim_pt.z = 100;
+        setCmd(seQ.cmd[0],K_LIFT,1,100,0,0);  // toggle on the z-lift for paths
+        setCmd(seQ.cmd[1],K_LINE_G,300,250,-200,155);  // move to right
+        setCmd(seQ.cmd[2],K_CLAW,  200,45,400,0); // close claw
+        setCmd(seQ.cmd[3],K_LINE_G,300,250,200,-100);  // move to left
+        setCmd(seQ.cmd[4],K_CLAW,  200,-45,400,0); // open claw 
+        setCmd(seQ.cmd[5],K_COMBINE,1, 0, 0, -51);  // subtract from move right
+        setCmd(seQ.cmd[6],K_COMBINE,3, 0, 0, 51);  // add to move left
+        setCmd(seQ.cmd[7],K_GOTO,1,5,0,0);  // go to command 1 and loop
+        setCmd(seQ.cmd[8],K_LINE_G,300,250,0,200); // up in the middle 
+        setCmd(seQ.cmd[9],K_LIFT,0,100,0,0);  // toggle z-lift off
+        setCmd(seQ.cmd[10],K_END,0,0,0,0); 
         break; 
       case S_AUTO_10:
         break;      
       case S_TELEOP_1:
       case S_TELEOP_3:
       case S_TELEOP_4:
-      case S_TELEOP_7:
+      case S_TELEOP_8:
       case S_TELEOP_9:
         the_arm.n = 0; // reset command pointer
         the_arm.loopCount = 0;
@@ -970,7 +1004,7 @@ void loopUpdateHand (arm & the_arm) { // Call this Function AFTER A B T JOINTS H
 }
 
 void blink() { // Blink the built in LED to measure the HeartBeat (speed) of the Loop
-  // 3/9/3023 stopwatch measurements found loop speed ~ 75 hz (13.3 millisec per loop). Increase to 40 counts per blink to make easier to count
+  // loop speed between 7 to 15 ms. Increase to 40 counts per blink to make easier to count
   static int counterLEDblink = 0;
   if (counterLEDblink < 20) {
     digitalWrite(13,HIGH); // Turn the LED on
@@ -1009,15 +1043,15 @@ void loop() {  //########### MAIN LOOP ############
     case S_AUTO_2: break;
     case S_AUTO_5:
     case S_AUTO_6:
-      readCommands(make3,seQ); // get and calculate the moves
+    case S_AUTO_7:
+      readCommands(make3,seQ); // read a sequence of commands and act accordingly
       break; 
-    case S_AUTO_8:
     case S_AUTO_10:
       break;
     case S_TELEOP_1: 
     case S_TELEOP_3:
     case S_TELEOP_4: 
-    case S_TELEOP_7:
+    case S_TELEOP_8:
     case S_TELEOP_9:
       make3.jA.pot_value = analogRead(make3.jA.pot.analog_pin);  // read joint A
       make3.jB.pot_value = analogRead(make3.jB.pot.analog_pin);  // read joint B
@@ -1063,7 +1097,7 @@ void loop() {  //########### MAIN LOOP ############
   //  Serial Output for Debugging
   //logData(make3.jCLAW,'C');
   //logPoint(make3);
-  //
+  /*
   Serial.print("STATE,");
   Serial.print(make3.state);
   Serial.print(",armMODE,");
@@ -1080,7 +1114,7 @@ void loop() {  //########### MAIN LOOP ############
   Serial.print(make3.line_len);
   Serial.print(",dt=");
   Serial.println(make3.dt);        
-//
+*/
   blink();  
 
   // Convert the .current_angle(s) to PWM signal and send 
